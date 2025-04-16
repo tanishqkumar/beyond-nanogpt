@@ -1,4 +1,5 @@
-# Beyond NanoGPT: From LLM Beginner to AI Researcher!
+# Beyond NanoGPT
+# Go from LLM Beginner to AI Researcher!
 
 Welcome to **Beyond-NanoGPT** – the minimal and educational repo aiming to bridge between nanoGPT and research-level deep learning. 
 This repo includes annotated and from-scratch implementations of tens of crucial modern techniques in frontier deep learning, aiming to technical newcomers learn enough to 
