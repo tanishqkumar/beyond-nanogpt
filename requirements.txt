@@ -1,0 +1,12 @@
+torch
+numpy
+torchvision
+wandb
+tqdm
+transformers
+datasets
+diffusers
+vllm
+matplotlib
+pillow
+jupyter
