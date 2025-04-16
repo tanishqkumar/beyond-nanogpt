@@ -42,7 +42,7 @@ self-contained and hand-written PyTorch.
    
 
 ## Current Implementations and Roadmap
-### Key Deep Learning architecturesitectures
+### Key Deep Learning architectures
 - ✅ Vanilla causal Transformer for language modeling (starting point) `transformer++/train-vanilla-transformer/`
 - ✅ Vision Transformer (ViT) `architectures/train_vit.py`
 - ✅ Diffusion Transformer (DiT) `architectures/train_dit.py`
@@ -72,7 +72,9 @@ self-contained and hand-written PyTorch.
 
 ## Notes
 
-- The codebase runs on a GPU. CPUs are fine for tasting the basics, but if you want to work with advanced techniques, you will need a GPU of some kind. 
+- The codebase runs on a GPU. 
+CPUs are fine for tasting the basics, but if you want to work with advanced techniques, you will need a GPU of some kind. 
+I recommend either a consumer laptop with GPU, paying for Colab/Runpod, or simply asking a compute provider or local university for a compute grant if those are out of budget (this works surprisingly well, people are very generous). 
 - Most scripts take in `--verbose` and `--wandb` as command line arguments when you run them, to enable detailed logging and sending logs to wandb, respectively. Feel free to hack these to your needs. 
 - The name of the repo is inspired by the wonderful NanoGPT repo by Andrej Karpathy, 
 though this repo is not officially associated. 
