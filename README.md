@@ -31,26 +31,26 @@ self-contained and hand-written PyTorch.
 
 ## Current Implementations and Roadmap
 ### Key Deep Learning Architectures
-- ✅ Vanilla causal Transformer for language modeling (starting point)
-- ✅ Vision Transformer (ViT)
-- ✅ Diffusion Transformer (DiT)
-- ✅ RNN for language modeling
-- ✅ Residual Networks for Image Recognition (ResNet)
+- ✅ Vanilla causal Transformer for language modeling (starting point) {transformer++/train-vanilla-transformer/}
+- ✅ Vision Transformer (ViT) {arch/train_vit.py}
+- ✅ Diffusion Transformer (DiT) {arch/train_dit.py}
+- ✅ RNN for language modeling {arch/train_rnn.py}
+- ✅ Residual Networks for Image Recognition (ResNet) {arch/train_resnet.py}
 - [Coming Soon]: MoE, Decision Transformers, Mamba
 
 ### Key Attention Variants
-- ✅ Vanilla Self-Attention
-- ✅ Multi-head Self-Attention
-- ✅ Grouped-Query Attention
-- ✅ Linear Attention
-- ✅ Sparse Attention
+- ✅ Vanilla Self-Attention {attn/vanilla_attention.ipynb}
+- ✅ Multi-head Self-Attention {attn/mhsa.ipynb}
+- ✅ Grouped-Query Attention {attn/gqa.ipynb}
+- ✅ Linear Attention {attn/linear_attention.ipynb}
+- ✅ Sparse Attention {attn/sparse_attention.ipynb}
 - [Coming Soon]: Multi-Latent Attention, Ring Attention, Flash Attention
 
 ### Key Transformer++ Optimizations
-- ✅ KV Caching
-- ✅ Speculative Decoding
-- ✅ Byte-Pair Encoding
-- ✅ Fast Dataloding Optimizations
+- ✅ KV Caching {transformer++/KV_cache.ipynb}
+- ✅ Speculative Decoding {transformer++/speculative_decoding.ipynb}
+- ✅ Byte-Pair Encoding {transformer++/bpe.ipynb}
+- ✅ Fast Dataloding Optimizations {transformer++/train-vanilla-transformer/}
 - [Coming Soon]: RoPE embeddings, continuous batching, sequence packing.
 
 ### Key RL Techniques
@@ -60,11 +60,11 @@ self-contained and hand-written PyTorch.
 
 ## Notes
 
-- Most scripts take in `--verbose` and `--wandb` as command line arguments when you run them, to enable detailed logging and sending logs to wandb, respectively. 
-Feel free to configure these to your needs. 
-- The name of the repo is inspired by the wonderful NanoGPT repo by Andrej Karpathy, which 
-I and many others have found incredibly useful as a resource. This repo is not officially associated with NanoGPT. 
+- The codebase runs on a GPU. CPUs are fine for tasting the basics, but if you want to work with advanced techniques, you will need a GPU of some kind. 
+- Most scripts take in `--verbose` and `--wandb` as command line arguments when you run them, to enable detailed logging and sending logs to wandb, respectively. Feel free to hack these to your needs. 
+- The name of the repo is inspired by the wonderful NanoGPT repo by Andrej Karpathy, 
+though this repo is not officially associated. 
 - Feel free to email me at [tanishq@stanford.edu](mailto:tanishq@stanford.edu) with feedback, things you want implemented, 
-and to raise any bugs as GitHub issues. 
+and to raise any bugs as GitHub issues. I am committing to implementing new techniques people want over the next month!
 
 **Happy coding, and may your gradients never vanish!**
