@@ -1,12 +1,13 @@
 ## Beyond NanoGPT: From LLM Beginner to AI Researcher!
 
-Welcome to **Beyond-NanoGPT** – the minimal and educational repo aiming to bridge between nanoGPT and research-level deep learning. 
-This repo includes annotated and from-scratch implementations of tens of crucial modern techniques in frontier deep learning, aiming to technical newcomers learn enough to 
-start running experiments and thus contributing to modern deep learning research. 
+_We don't have enough AI researchers._  **Beyond-NanoGPT** is the minimal and educational repo aiming to bridge between nanoGPT and research-level deep learning. This repo includes annotated and from-scratch implementations of tens of crucial modern techniques in frontier deep learning, aiming to help newcomers learn enough practical deep learning to 
+start running experiments and thus contributing to modern research. 
 
 It implements everything from inference techniques like KV caching and speculative decoding to 
 architectures like vision and diffusion transformers to attention variants like linear or sparse attention. *Thousands of lines of 
-self-contained and hand-written PyTorch to help you upskill your technical fundamentals.*
+self-contained and hand-written PyTorch to help you upskill your technical fundamentals.* The goal is for you to 
+read and reimplement the techniques and systems in this repository most relevant to your desired research area to learn 
+about the nitty-gritty details more deeply. Get cooking!
 
 ## Quickstart
 1. **Clone the Repo:**
