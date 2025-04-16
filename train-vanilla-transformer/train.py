@@ -2,33 +2,48 @@ import torch
 from datasets import load_dataset
 from transformer import Transformer 
 from tqdm import tqdm 
-path = "/n/home11/tanishqkumar/gravity-chamber/fundamentals/llm/train-vanilla-transformer"
 from transformers import GPT2Tokenizer
 import argparse
 import time
 import json
 from pathlib import Path
+from torch.utils.data import DataLoader
 import gc
 
+# this is a Karpathy-like training file, with arch in transformer.py. We use an off-the-shelf tokenizer and dataloader, 
+# we will build both of our own in the other files/folders, this file is meant to be the starting point in this repo
+# so that one should understand this code (ie. be at a NanoGPT level) before starting to work through the repo. 
+def collate_batch(batch, tokenizer):
+    """Collate function to create batches from TinyStories dataset"""
+    # get the text 
+    texts = [item['text'] for item in batch]
+    
+    # tokenize and pad sequences
+    encoded = tokenizer(texts, padding=True, truncation=True, max_length=512, return_tensors='pt')
+    return encoded['input_ids'].cuda()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a transformer model')
-    parser.add_argument('--batch_size', type=int, default=256, help='Batch size')
+    parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
     parser.add_argument('--seq_len', type=int, default=512, help='Sequence length')
     parser.add_argument('--hidden_dim', type=int, default=512, help='Hidden dimension')
     parser.add_argument('--nlayers', type=int, default=6, help='Number of transformer layers')
     parser.add_argument('--steps', type=int, default=1000, help='Number of training steps')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--verbose', action='store_true', help='Print verbose output')
-    parser.add_argument('--save', action='store_true', help='Save the model')
-    parser.add_argument('--compile', action='store_true', help='Run compiler to optimize perf')
-    parser.add_argument('--profile', action='store_true', help='Profile data loading and compute time')
-    parser.add_argument('--grad_clip', type=float, default=1.0, help='Gradient clipping value')
+    parser.add_argument('--save', action='store_true', help='Save the model') 
+    parser.add_argument('--compile', action='store_true', help='Run compiler to optimize perf') 
+    parser.add_argument('--profile', action='store_true', help='Profile data loading and compute time') 
+    parser.add_argument('--grad_clip', type=float, default=1.0, help='Gradient clipping value') 
     args = parser.parse_args()
     
-    data_path = "/n/netscratch/gershman_lab/Lab/tkumar/datasets/dclm/global-shard_01_of_10/newest_data/dclm_seed_2b"
+    # stream the dataset to avoid OOM if we try to take it all in one shot 
+    if args.verbose:
+        print(f'Loading TinyStories dataset...')
+    dataset = load_dataset("roneneldan/TinyStories", streaming=True)
+    dataset = dataset['train'].shuffle(buffer_size=1000)
     
-    # Initialize GPT-2 tokenizer
+    # use a simple off-the-shelf tokenizer, we want to focus on training the arch
     if args.verbose:
         print(f'Loading GPT-2 tokenizer...')
     tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
@@ -51,8 +66,12 @@ if __name__ == "__main__":
         print(f'Initializing dataloader with batch size {B}, sequence length {S}...')
         print(f'Using batch size of {round((args.batch_size * args.seq_len)/1e3, 2)}K tokens.')
 
-    # Initialize dataloader
-    dataloader = DataLoader(data_path, batch_size=B, seq_len=S)
+    # Use PyTorch's DataLoader with custom collate function
+    dataloader = DataLoader(
+        dataset.take(args.steps * args.batch_size),  # Only take what we need
+        batch_size=B,
+        collate_fn=lambda batch: collate_batch(batch, tokenizer)
+    )
 
     if args.verbose: print(f'Setting up training...')
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
@@ -60,17 +79,18 @@ if __name__ == "__main__":
 
     data_time = 0
     compute_time = 0
+    
+    dataloader_iter = iter(dataloader)
 
     for step in range(args.steps):
         if args.profile:
             data_start = time.time()
             
-        # Clear CUDA cache periodically to reduce fragmentation
-        if step % 50 == 0:
-            torch.cuda.empty_cache()
-            gc.collect()
-            
-        batch = next(dataloader)  
+        try:
+            batch = next(dataloader_iter)
+        except StopIteration:
+            dataloader_iter = iter(dataloader)
+            batch = next(dataloader_iter)
         
         # Create labels in-place to avoid extra memory allocation
         labels = torch.empty_like(batch)
@@ -83,17 +103,14 @@ if __name__ == "__main__":
             
         outputs = model(batch)
         
-        # Get shapes once to avoid repeated calculations
         B, S, V = outputs.shape 
-        
-        # Reshape with contiguous to ensure memory efficiency
         outputs = outputs.reshape(-1, V).contiguous()
         labels = labels.reshape(-1).contiguous()
 
         loss = loss_fn(outputs, labels)
         loss.backward()
         
-        # Apply gradient clipping to prevent memory spikes
+        # avoid training spikes 
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
         
         if step % 10 == 0: print(f'[Step {step}/{args.steps}]: Train loss {loss.item()} ...')
@@ -113,11 +130,12 @@ if __name__ == "__main__":
         print(f"Data loading percentage: {100 * data_time/(data_time + compute_time):.1f}%")
         print(f"Compute percentage: {100 * compute_time/(data_time + compute_time):.1f}%")
 
-    # save model for inference in jupyter notebook 
+    # save model for inference in jupyter notebook if needed 
     if args.save: 
-        save_dir = "/n/netscratch/gershman_lab/Lab/tkumar/datasets/dclm/global-shard_01_of_10/newest_data/gravity-models"
-        model_name = f'model_lr{args.lr}_bs{args.batch_size}_seq{args.seq_len}.pt'
-        save_path = f'{save_dir}/{model_name}'
+        save_dir = Path("saved_models")
+        save_dir.mkdir(exist_ok=True)
+        model_name = f'tinystories_model_lr{args.lr}_bs{args.batch_size}_seq{args.seq_len}.pt'
+        save_path = save_dir / model_name
         if args.verbose:
             print(f'Saving model to {save_path}...')
-        torch.save(model.state_dict(), save_path)
+        torch.save(model.state_dict(), str(save_path))

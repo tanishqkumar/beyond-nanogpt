@@ -58,7 +58,7 @@ about the nitty-gritty details more deeply. Get cooking!
 ### Key Transformer++ Optimizations
 - ✅ KV Caching `transformer++/KV_cache.ipynb`
 - ✅ Speculative Decoding `transformer++/speculative_decoding.ipynb`
-- ✅ Fast Dataloding `transformer++/train-vanilla-transformer/`
+- ✅ Fast Dataloding `train-vanilla-transformer/`
 - ✅ Byte-Pair Encoding `transformer++/bpe.ipynb`
 - [Coming Soon]: RoPE embeddings, continuous batching, sequence packing.
 
@@ -69,7 +69,8 @@ about the nitty-gritty details more deeply. Get cooking!
 
 ## Notes
 
-- The codebase runs on GPU. I recommend either a consumer laptop with GPU, paying for Colab/Runpod, 
+- The codebase expects a GPU. It might work with CPU, but no guarantees. 
+I recommend either a consumer laptop with GPU, paying for Colab/Runpod, 
 or simply asking a compute provider or local university for a compute grant if those are out of 
 budget (this works surprisingly well, people are very generous). 
 - Most `.py` scripts take in `--verbose` and `--wandb` as command line arguments when you run them, to enable detailed logging and sending logs to wandb, respectively. Feel free to hack these to your needs. 

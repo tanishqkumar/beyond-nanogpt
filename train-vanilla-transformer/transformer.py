@@ -1,7 +1,13 @@
-# KV cache, prefill/decoding, prompt batching, sequence packing, speculation, torch.compile, GQA, key inference math, throughput/latency
 import torch 
-from utils import ACT2FN
 from typing import List, Dict, Optional, Tuple 
+
+# helper 
+ACT2FN = {
+    'relu': torch.nn.functional.relu,
+    'gelu': torch.nn.functional.gelu,
+    'silu': torch.nn.functional.silu,
+    'swish': torch.nn.functional.silu,
+}
 
 class Attention(torch.nn.Module): # BSD -> BSD
     def __init__(self, D=768, layer_idx=None, head_dim=64, causal=True, device="cuda", gqa=False): 
@@ -21,7 +27,7 @@ class Attention(torch.nn.Module): # BSD -> BSD
 
     def forward(self, x: torch.Tensor, kv_cache): # input is [B, S, D] 
         B, S, D = x.shape
-        # let's make this multi-head now, ie. make each QKV [B, S, D] --> [B, nh, S, hd]
+        # this multi-head now, ie. make each QKV [B, S, D] --> [B, nh, S, hd]
 
         Q, K, V = self.Wq(x), self.Wk(x), self.Wv(x) # all [B, S, D]
 
@@ -54,6 +60,7 @@ class Attention(torch.nn.Module): # BSD -> BSD
         out = self.Wo(preout) # [B, S, D]
         return out # [B, S, D]
 
+# most important fact about MLP: it operates on each token independently, ie. D --> D
 class MLP(torch.nn.Module): 
     def __init__(self, D, hidden_multiplier=4, act='swish', device=None): 
         super().__init__()
@@ -100,6 +107,7 @@ class TransformerLayer(torch.nn.Module):
         x = x + mlp_out
         return x 
 
+# simple pos_embeddings, leave RoPE etc to future implementation
 class PositionalEmbedding(torch.nn.Module):
     def __init__(self, max_seq_len, D, device=None):
         super().__init__()
@@ -111,7 +119,7 @@ class PositionalEmbedding(torch.nn.Module):
         return x + self.pos_embedding[:S] # Broadcasting handles batch dimension
 
 class EmbeddingLayer(torch.nn.Module): 
-    # this is just a lookup table 
+    # this is just a lookup table, gradients flow only to the entry we found in the lookup, not the same as matmul 
     def __init__(self, vocab_size, D, device=None): 
         super().__init__()
         self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -121,7 +129,7 @@ class EmbeddingLayer(torch.nn.Module):
         return self.embedding[x]
 
 class UnembeddingLayer(torch.nn.Module): 
-    # this is just a lookup table that maps embeddings back to logits
+    # similar to above, this is just a lookup table that maps embeddings back to logits
     def __init__(self, vocab_size, D, device=None): 
         super().__init__()
         self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
