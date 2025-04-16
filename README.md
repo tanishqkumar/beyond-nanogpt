@@ -15,19 +15,8 @@ about the nitty-gritty details more deeply. Get cooking!
    ```bash
    git clone https://github.com/tanishqkumar/beyond-nanogpt.git
    ```
-2. **Set Up Your Virtual Environment:**
-   Using venv:
-   ```bash
-   python -m venv env
-   source env/bin/activate  # On Windows use: env\Scripts\activate
-   pip install -r requirements.txt
-   ```
-   Or using conda:
-   ```bash
-   conda create -n beyond-nanogpt # any Python >=3.8
-   conda activate beyond-nanogpt
-   pip install -r requirements.txt
-   ```
+2. **Get Minimal Dependencies:**
+   ```pip install torch numpy torchvision wandb tqdm transformers datasets diffusers matplotlib pillow jupyter```
 3. **Start learning!**
    The code is meant for you to read carefully, hack around with, then re-implement yourself from scratch and compare to. 
    You can just run `.py` files with vanilla Python in the following way. 
@@ -40,8 +29,9 @@ about the nitty-gritty details more deeply. Get cooking!
    cd architectures/
    python train_dit.py
    ```
-   Everything is written to be run on a single GPU. 
-   The code is self-documenting with lots of comments that give intuition, and the arguments are laid out at the bottom of each file. 
+   Everything is written to be run on a single GPU. The code is self-documenting with comments for intuition and elaborating 
+   on subtleties I found tricky to implement. 
+   Arguments are specified at the bottom of each file. 
    Jupyter notebooks are meant to be stepped through.
    
 
