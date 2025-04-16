@@ -14,9 +14,16 @@ self-contained and hand-written PyTorch.
    git clone https://github.com/tanishqkumar/beyond-nanogpt.git
    ```
 2. **Set Up Your Virtual Environment:**
+   Using venv:
    ```bash
    python3 -m venv env
-   source env/bin/activate
+   source env/bin/activate  # On Windows use: env\Scripts\activate
+   pip install -r requirements.txt
+   ```
+   Or using conda:
+   ```bash
+   conda create -n beyond-nanogpt python=3.11  # Or any Python >=3.8
+   conda activate beyond-nanogpt
    pip install -r requirements.txt
    ```
 3. **Start learning!**
@@ -31,7 +38,7 @@ self-contained and hand-written PyTorch.
    python train_dit.py
    ```
    The code is self-explanatory since its well-commented, and the arguments are laid out at the bottom of each file. 
-   Jupyter notebooks are meant to be illustratively run as you step through them. 
+   Jupyter notebooks are meant to be illustratively run as you step through them.
    
 
 ## Current Implementations and Roadmap
