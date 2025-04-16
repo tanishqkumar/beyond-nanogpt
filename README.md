@@ -11,46 +11,41 @@ self-contained and hand-written PyTorch.
 ## Quickstart
 1. **Clone the Repo:**
    ```bash
-   git clone https://yourrepo.example.com/yourname/llm.git
-   cd llm
+   git clone https://github.com/tanishqkumar/beyond-nanogpt.git
    ```
-2. **Set Up Your Virtual Cauldron (Environment):**
+2. **Set Up Your Virtual Environment:**
    ```bash
    python3 -m venv env
    source env/bin/activate
-   ```
-3. **Install the Required Potion Ingredients (Dependencies):**
-   ```bash
    pip install -r requirements.txt
    ```
-4. **Summon the Code:**
-   Get ready for a magical session of innovation. Run the provided scripts or experiments to see how deep learning is truly conjured from scratch!
-   ```bash
-   python your_script.py   # Replace with the specific runner if applicable.
-   ```
+3. **Start learning!**
+   Inspect and hack the codes to your needs, running files with a vanilla command like `python train.py` in `transformer++/train-vanilla/transformer` or `python train_resnet` in `arch/train_resnet.py`. The code is self-explanatory since its well-commented, 
+   and the input arguments are neatly laid out at the bottom of each file. 
+   
 
 ## Current Implementations and Roadmap
 ### Key Deep Learning Architectures
-- ✅ Vanilla causal Transformer for language modeling (starting point) {transformer++/train-vanilla-transformer/}
-- ✅ Vision Transformer (ViT) {arch/train_vit.py}
-- ✅ Diffusion Transformer (DiT) {arch/train_dit.py}
-- ✅ RNN for language modeling {arch/train_rnn.py}
-- ✅ Residual Networks for Image Recognition (ResNet) {arch/train_resnet.py}
+- ✅ Vanilla causal Transformer for language modeling (starting point) `transformer++/train-vanilla-transformer/`
+- ✅ Vision Transformer (ViT) `arch/train_vit.py`
+- ✅ Diffusion Transformer (DiT) `arch/train_dit.py`
+- ✅ RNN for language modeling `arch/train_rnn.py`
+- ✅ Residual Networks for Image Recognition (ResNet) `arch/train_resnet.py`
 - [Coming Soon]: MoE, Decision Transformers, Mamba
 
 ### Key Attention Variants
-- ✅ Vanilla Self-Attention {attn/vanilla_attention.ipynb}
-- ✅ Multi-head Self-Attention {attn/mhsa.ipynb}
-- ✅ Grouped-Query Attention {attn/gqa.ipynb}
-- ✅ Linear Attention {attn/linear_attention.ipynb}
-- ✅ Sparse Attention {attn/sparse_attention.ipynb}
+- ✅ Vanilla Self-Attention `attn/vanilla_attention.ipynb`
+- ✅ Multi-head Self-Attention `attn/mhsa.ipynb`
+- ✅ Grouped-Query Attention `attn/gqa.ipynb`
+- ✅ Linear Attention `attn/linear_attention.ipynb`
+- ✅ Sparse Attention `attn/sparse_attention.ipynb`
 - [Coming Soon]: Multi-Latent Attention, Ring Attention, Flash Attention
 
 ### Key Transformer++ Optimizations
-- ✅ KV Caching {transformer++/KV_cache.ipynb}
-- ✅ Speculative Decoding {transformer++/speculative_decoding.ipynb}
-- ✅ Byte-Pair Encoding {transformer++/bpe.ipynb}
-- ✅ Fast Dataloding Optimizations {transformer++/train-vanilla-transformer/}
+- ✅ KV Caching `transformer++/KV_cache.ipynb`
+- ✅ Speculative Decoding `transformer++/speculative_decoding.ipynb`
+- ✅ Byte-Pair Encoding `transformer++/bpe.ipynb`
+- ✅ Fast Dataloding Optimizations `transformer++/train-vanilla-transformer/`
 - [Coming Soon]: RoPE embeddings, continuous batching, sequence packing.
 
 ### Key RL Techniques
