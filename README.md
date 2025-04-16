@@ -1,6 +1,7 @@
 ## Beyond NanoGPT: From LLM Beginner to AI Researcher!
 
-_We don't have enough AI researchers._  **Beyond-NanoGPT** is the minimal and educational repo aiming to bridge between nanoGPT and research-level deep learning. This repo includes annotated and from-scratch implementations of tens of crucial modern techniques in frontier deep learning, aiming to help newcomers learn enough practical deep learning to 
+**Beyond-NanoGPT** is the minimal and educational repo aiming to **bridge between nanoGPT and research-level deep learning.** 
+This repo includes annotated and from-scratch implementations of tens of crucial modern techniques in frontier deep learning, aiming to help newcomers learn enough practical deep learning to 
 start running experiments and thus contributing to modern research. 
 
 It implements everything from inference techniques like KV caching and speculative decoding to 
@@ -17,18 +18,19 @@ about the nitty-gritty details more deeply. Get cooking!
 2. **Set Up Your Virtual Environment:**
    Using venv:
    ```bash
-   python3 -m venv env
+   python -m venv env
    source env/bin/activate  # On Windows use: env\Scripts\activate
    pip install -r requirements.txt
    ```
    Or using conda:
    ```bash
-   conda create -n beyond-nanogpt python=3.11  # Or any Python >=3.8
+   conda create -n beyond-nanogpt # any Python >=3.8
    conda activate beyond-nanogpt
    pip install -r requirements.txt
    ```
 3. **Start learning!**
-   Inspect and hack the codes to your needs, running files with a vanilla command like 
+   The code is meant for you to read carefully, hack around with, then re-implement yourself from scratch and compare to. 
+   You can just run `.py` files with vanilla Python in the following way. 
    ```bash
    cd transformer++/train-vanilla-transformer/
    python train.py
@@ -38,8 +40,9 @@ about the nitty-gritty details more deeply. Get cooking!
    cd architectures/
    python train_dit.py
    ```
-   The code is self-explanatory since its well-commented, and the arguments are laid out at the bottom of each file. 
-   Jupyter notebooks are meant to be illustratively run as you step through them.
+   Everything is written to be run on a single GPU. 
+   The code is self-documenting with lots of comments that give intuition, and the arguments are laid out at the bottom of each file. 
+   Jupyter notebooks are meant to be stepped through.
    
 
 ## Current Implementations and Roadmap
@@ -62,8 +65,8 @@ about the nitty-gritty details more deeply. Get cooking!
 ### Key Transformer++ Optimizations
 - ✅ KV Caching `transformer++/KV_cache.ipynb`
 - ✅ Speculative Decoding `transformer++/speculative_decoding.ipynb`
+- ✅ Fast Dataloding `transformer++/train-vanilla-transformer/`
 - ✅ Byte-Pair Encoding `transformer++/bpe.ipynb`
-- ✅ Fast Dataloding Optimizations `transformer++/train-vanilla-transformer/`
 - [Coming Soon]: RoPE embeddings, continuous batching, sequence packing.
 
 ### Key RL Techniques
@@ -73,14 +76,16 @@ about the nitty-gritty details more deeply. Get cooking!
 
 ## Notes
 
-- The codebase runs on a GPU. 
-CPUs are fine for tasting the basics, but if you want to work with advanced techniques, you will need a GPU of some kind. 
-I recommend either a consumer laptop with GPU, paying for Colab/Runpod, or simply asking a compute provider or local university for a compute grant if those are out of budget (this works surprisingly well, people are very generous). 
-- Most scripts take in `--verbose` and `--wandb` as command line arguments when you run them, to enable detailed logging and sending logs to wandb, respectively. Feel free to hack these to your needs. 
+- The codebase runs on GPU. I recommend either a consumer laptop with GPU, paying for Colab/Runpod, 
+or simply asking a compute provider or local university for a compute grant if those are out of 
+budget (this works surprisingly well, people are very generous). 
+- Most `.py` scripts take in `--verbose` and `--wandb` as command line arguments when you run them, to enable detailed logging and sending logs to wandb, respectively. Feel free to hack these to your needs. 
 - The name of the repo is inspired by the wonderful NanoGPT repo by Andrej Karpathy, 
-though this repo is not officially associated. 
-- Feel free to email me at [tanishq@stanford.edu](mailto:tanishq@stanford.edu) with feedback, things you want implemented, 
+though this repo has no official association with it.  
+- Feel free to email me at [tanishq@stanford.edu](mailto:tanishq@stanford.edu) with feedback, implementation/feature requests, 
 and to raise any bugs as GitHub issues. I am committing to implementing new techniques people want over the next month, and 
 welcome contributions or bug fixes by others. 
 
+**2025 is a wild time to be alive, and we need 
+all hands on deck on frontier AI research.**
 **Happy coding, and may your gradients never vanish!**
