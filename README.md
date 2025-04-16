@@ -20,8 +20,18 @@ self-contained and hand-written PyTorch.
    pip install -r requirements.txt
    ```
 3. **Start learning!**
-   Inspect and hack the codes to your needs, running files with a vanilla command like `python train.py` in `transformer++/train-vanilla/transformer` or `python train_resnet` in `architectures/train_resnet.py`. The code is self-explanatory since its well-commented, 
-   and the  arguments are neatly laid out at the bottom of each file. 
+   Inspect and hack the codes to your needs, running files with a vanilla command like 
+   ```bash
+   cd transformer++/train-vanilla-transformer/
+   python train.py
+   ``` 
+   or for instance 
+   ```bash 
+   cd architectures/
+   python train_dit.py
+   ```
+   The code is self-explanatory since its well-commented, and the arguments are laid out at the bottom of each file. 
+   Jupyter notebooks are meant to be illustratively run as you step through them. 
    
 
 ## Current Implementations and Roadmap
