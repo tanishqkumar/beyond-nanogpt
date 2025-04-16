@@ -1,11 +1,11 @@
-# Beyond NanoGPT: Go from LLM noob to AI Researcher!
+# Beyond NanoGPT: Go from LLM noob to AI Researchitectureser!
 
-Welcome to **Beyond-NanoGPT** – the minimal and educational repo aiming to bridge between nanoGPT and research-level deep learning. 
+Welcome to **Beyond-NanoGPT** – the minimal and educational repo aiming to bridge between nanoGPT and researchitectures-level deep learning. 
 This repo includes annotated and from-scratch implementations of tens of crucial modern techniques in frontier deep learning, aiming to technical newcomers learn enough to 
-start running experiments and thus contributing to modern deep learning research. 
+start running experiments and thus contributing to modern deep learning researchitectures. 
 
 It implements everything from inference techniques like KV caching and speculative decoding to 
-architectures like vision and diffusion transformers to attention variants like linear or sparse attention. Thousands of lines of 
+architecturesitectures like vision and diffusion transformers to attention variants like linear or sparse attention. Thousands of lines of 
 self-contained and hand-written PyTorch. 
 
 ## Quickstart
@@ -20,25 +20,25 @@ self-contained and hand-written PyTorch.
    pip install -r requirements.txt
    ```
 3. **Start learning!**
-   Inspect and hack the codes to your needs, running files with a vanilla command like `python train.py` in `transformer++/train-vanilla/transformer` or `python train_resnet` in `arch/train_resnet.py`. The code is self-explanatory since its well-commented, 
-   and the input arguments are neatly laid out at the bottom of each file. 
+   Inspect and hack the codes to your needs, running files with a vanilla command like `python train.py` in `transformer++/train-vanilla/transformer` or `python train_resnet` in `architectures/train_resnet.py`. The code is self-explanatory since its well-commented, 
+   and the  arguments are neatly laid out at the bottom of each file. 
    
 
 ## Current Implementations and Roadmap
-### Key Deep Learning Architectures
+### Key Deep Learning architecturesitectures
 - ✅ Vanilla causal Transformer for language modeling (starting point) `transformer++/train-vanilla-transformer/`
-- ✅ Vision Transformer (ViT) `arch/train_vit.py`
-- ✅ Diffusion Transformer (DiT) `arch/train_dit.py`
-- ✅ RNN for language modeling `arch/train_rnn.py`
-- ✅ Residual Networks for Image Recognition (ResNet) `arch/train_resnet.py`
+- ✅ Vision Transformer (ViT) `architectures/train_vit.py`
+- ✅ Diffusion Transformer (DiT) `architectures/train_dit.py`
+- ✅ RNN for language modeling `architectures/train_rnn.py`
+- ✅ Residual Networks for Image Recognition (ResNet) `architectures/train_resnet.py`
 - [Coming Soon]: MoE, Decision Transformers, Mamba
 
 ### Key Attention Variants
-- ✅ Vanilla Self-Attention `attn/vanilla_attention.ipynb`
-- ✅ Multi-head Self-Attention `attn/mhsa.ipynb`
-- ✅ Grouped-Query Attention `attn/gqa.ipynb`
-- ✅ Linear Attention `attn/linear_attention.ipynb`
-- ✅ Sparse Attention `attn/sparse_attention.ipynb`
+- ✅ Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb`
+- ✅ Multi-head Self-Attention `attention-variants/mhsa.ipynb`
+- ✅ Grouped-Query Attention `attention-variants/gqa.ipynb`
+- ✅ Linear Attention `attention-variants/linear_attention.ipynb`
+- ✅ Sparse Attention `attention-variants/sparse_attention.ipynb`
 - [Coming Soon]: Multi-Latent Attention, Ring Attention, Flash Attention
 
 ### Key Transformer++ Optimizations
