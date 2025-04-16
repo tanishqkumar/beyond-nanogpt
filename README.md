@@ -5,8 +5,8 @@ This repo includes annotated and from-scratch implementations of tens of crucial
 start running experiments and thus contributing to modern deep learning research. 
 
 It implements everything from inference techniques like KV caching and speculative decoding to 
-architectures like vision and diffusion transformers to attention variants like linear or sparse attention. Thousands of lines of 
-self-contained and hand-written PyTorch. 
+architectures like vision and diffusion transformers to attention variants like linear or sparse attention. *Thousands of lines of 
+self-contained and hand-written PyTorch to help you upskill your technical fundamentals.*
 
 ## Quickstart
 1. **Clone the Repo:**
