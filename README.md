@@ -24,7 +24,7 @@ about the nitty-gritty details more deeply. Get cooking!
    The code is meant for you to read carefully, hack around with, then re-implement yourself from scratch and compare to. 
    You can just run `.py` files with vanilla Python in the following way. 
    ```bash
-   cd transformer++/train-vanilla-transformer/
+   cd train-vanilla-transformer/
    python train.py
    ``` 
    or for instance 
@@ -40,7 +40,7 @@ about the nitty-gritty details more deeply. Get cooking!
 
 ## Current Implementations and Roadmap
 ### Key Deep Learning architectures
-- ✅ Vanilla causal Transformer for language modeling (starting point) `transformer++/train-vanilla-transformer/`
+- ✅ Vanilla causal Transformer for language modeling (starting point) `train-vanilla-transformer/train.py`
 - ✅ Vision Transformer (ViT) `architectures/train_vit.py`
 - ✅ Diffusion Transformer (DiT) `architectures/train_dit.py`
 - ✅ RNN for language modeling `architectures/train_rnn.py`
