@@ -1,0 +1,7 @@
+Work in progress. Some things this directory will include implementations of: 
+- CartPole with Deep Q Networks
+- Self-Play on tic-tac-toe with policy gradient (single GPU)
+- Scaling up self-play on chess, with MCTS and distributed computation
+- GRPO on an LLM for reasoning
+- RLHF and DPO on an LLM with UltraFeedback-like dataset
+- GRPO on an LLM for non-verifiable domain, like humour, via RLAIF with constitution/examples as reward signal
