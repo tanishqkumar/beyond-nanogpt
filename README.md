@@ -1,5 +1,8 @@
 ## Beyond NanoGPT: Go From LLM Beginner to AI Researcher!
 
+![image](https://github.com/user-attachments/assets/b2943618-d5ed-468d-b792-d1cf4e0d6c6a)
+
+
 **Beyond-NanoGPT** is the minimal and educational repo aiming to **bridge between nanoGPT and research-level deep learning.** 
 This repo includes annotated and from-scratch implementations of tens of crucial modern techniques in frontier deep learning, aiming to help newcomers learn enough practical deep learning to start running experiments and thus contributing to modern research. 
 
@@ -58,7 +61,7 @@ about the nitty-gritty details more deeply. Get cooking!
 ### Key Transformer++ Optimizations
 - ✅ KV Caching `transformer++/KV_cache.ipynb`
 - ✅ Speculative Decoding `transformer++/speculative_decoding.ipynb`
-- ✅ Fast Dataloding `train-vanilla-transformer/`
+- ✅ Fast Dataloading `train-vanilla-transformer/`
 - ✅ Byte-Pair Encoding `transformer++/bpe.ipynb`
 - [Coming Soon]: RoPE embeddings, continuous batching, sequence packing.
 
