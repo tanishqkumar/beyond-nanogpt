@@ -1,11 +1,25 @@
+'''
+This implements "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale"
+(https://arxiv.org/pdf/2010.11929)
+
+The core idea here is that TRANSFORMERS SCALE, so that simply embedding patches of images and 
+adding a classification head on a transformer allows it to be competitive and even beat convNets
+at large scale (though not at small scale, since inductive bias in ConvNets acts as effective compute). 
+'''
+
+
 import torch 
 import torch.nn.functional as F
-from torchtyping import TensorType as TT 
 import torchvision
 import torchvision.transforms as transforms
 import ssl
 from tqdm import tqdm
+import argparse
+import wandb
+import time
 
+
+#### SAME AS VANILLA TRANSFORMER ####
 class Attention(torch.nn.Module): 
     def __init__(self, D: int = 512, head_dim: int = 64):
         super().__init__()
@@ -19,7 +33,7 @@ class Attention(torch.nn.Module):
         self.nheads = self.D // self.head_dim 
 
 
-    def forward(self, x: TT["b", "s", "d"]) -> TT["b", "s", "d"]: # [B, S, D] -> [B, S, D]
+    def forward(self, x): # [B, S, D] -> [B, S, D]
         B, S, D = x.shape 
         q, k, v = self.wq(x), self.wk(x), self.wv(x) # [B, S, D]
         q = q.reshape(B, S, self.nheads, self.head_dim).transpose(1, 2) # [B, nh, S, hd]
@@ -60,6 +74,8 @@ class LN(torch.nn.Module): # BSD -> BSD, just subtracts mean and rescales by std
         std = x.std(dim=-1, keepdim=True)
         return self.std_scale * ((x - mean)/(std + self.eps)) + self.mean_scale
 
+#### DIFFERENT FROM VANILLA TRANSFORMER, now vision-specific ####
+
 class PatchEmbeddings(torch.nn.Module): # (b, ch, h, w) -> (b, np+1, d)
     def __init__(self, D=512, t=16, h=32, w=32, ch=3): # (b, ch, h, w) -> (b, np, t, t, ch) -> (b, np, t * t * ch) -> (b, np, d) -> (b, np+1, d)
         super().__init__()
@@ -84,7 +100,7 @@ class PatchEmbeddings(torch.nn.Module): # (b, ch, h, w) -> (b, np+1, d)
         x = x + self.pos_embeds
         return x
 
-class ClassificationHead(torch.nn.Module): 
+class ClassificationHead(torch.nn.Module): # remember, the ultimate goal is not generation, but classificaiton here 
     def __init__(self, D=512, multiplier=4, num_classes=100):
         super().__init__()
         self.D = D
@@ -125,43 +141,43 @@ class ViT(torch.nn.Module):
         logits = self.classify(h)
         return logits
 
-if __name__ == "__main__":
-    # Disable SSL verification (not recommended for production)
-    ssl._create_default_https_context = ssl._create_unverified_context
-
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-    ])
-
-    # Load train and test datasets
-    trainset = torchvision.datasets.CIFAR100(root='./data', train=True,
-                                            download=True, transform=transform)
-    testset = torchvision.datasets.CIFAR100(root='./data', train=False,
-                                        download=True, transform=transform)
-
-    # Create data loaders
-    B = 16  # batch size
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=B, shuffle=True)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=B, shuffle=False)
-
-    # Initialize model and training parameters
-    D = 512
-    num_classes = 100
+def train(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    vit = ViT(D).to(device)
-    optimizer = torch.optim.Adam(vit.parameters(), lr=1e-4)
-    num_epochs = 10
+    if args.verbose:
+        print(f"Using device: {device}")
 
-    # Training loop
-    train_losses = []
-    test_accuracies = []
+    if args.wandb:
+        wandb.init(project="train_vit")
+        wandb.config.update(args)
 
-    for epoch in tqdm(range(num_epochs)):
-        # Training phase
+    # get dataset
+    ssl._create_default_https_context = ssl._create_unverified_context
+    transform = transforms.Compose([transforms.ToTensor()])
+
+    trainset = torchvision.datasets.CIFAR100(root='./data', train=True, download=True, transform=transform)
+    testset = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=transform)
+
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+
+    # init model/opt, standard stuff
+    vit = ViT(args.D, args.nlayers, num_classes=100).to(device)
+    optimizer = torch.optim.Adam(vit.parameters(), lr=args.lr)
+
+    best_acc = 0.0
+    for epoch in range(args.epochs):
         vit.train()
         total_loss = 0
-        for batch in tqdm(trainloader, desc=f'Epoch {epoch+1}/{num_epochs}'):
-            x, y = batch
+        train_correct = 0
+        train_total = 0
+        num_train_batches = 0
+
+        if args.verbose:
+            train_iter = tqdm(trainloader, desc=f"Epoch {epoch+1}/{args.epochs}")
+        else:
+            train_iter = trainloader
+
+        for x, y in train_iter:
             x, y = x.to(device), y.to(device)
             
             optimizer.zero_grad()
@@ -171,24 +187,96 @@ if __name__ == "__main__":
             optimizer.step()
             
             total_loss += loss.item()
-        
-        avg_train_loss = total_loss / len(trainloader)
-        train_losses.append(avg_train_loss)
-        
-        # Testing phase
-        vit.eval()
-        correct = 0
-        total = 0
-        with torch.no_grad():
-            for batch in testloader:
-                x, y = batch
-                x, y = x.to(device), y.to(device)
-                logits = vit(x)
-                preds = torch.argmax(logits, dim=-1)
-                correct += (preds == y).sum().item()
-                total += y.size(0)
-        
-        test_accuracy = 100 * correct / total
-        test_accuracies.append(test_accuracy)
-        
-        print(f'Epoch {epoch+1}: Train Loss = {avg_train_loss:.4f}, Test Accuracy = {test_accuracy:.2f}%')
+            _, predicted = logits.max(1)
+            train_total += y.size(0)
+            train_correct += predicted.eq(y).sum().item()
+            num_train_batches += 1
+
+            if args.verbose:
+                train_iter.set_description(f"Train Loss: {total_loss/num_train_batches:.4f} | Acc: {100.*train_correct/train_total:.2f}%")
+
+        epoch_train_loss = total_loss / num_train_batches
+        epoch_train_acc = 100. * train_correct / train_total
+
+        if args.wandb:
+            wandb.log({"epoch": epoch+1, "train_loss": epoch_train_loss, "train_acc": epoch_train_acc})
+
+        if (epoch + 1) % max(1, int(args.epochs * args.test_every)) == 0 or epoch == args.epochs - 1:
+            vit.eval()
+            test_loss = 0
+            test_correct = 0
+            test_total = 0
+            num_test_batches = 0
+
+            with torch.no_grad():
+                if args.verbose:
+                    test_iter = tqdm(testloader, desc="Validation")
+                else:
+                    test_iter = testloader
+
+                for x, y in test_iter:
+                    x, y = x.to(device), y.to(device)
+                    logits = vit(x)
+                    loss = F.cross_entropy(logits, y)
+                    
+                    test_loss += loss.item()
+                    _, predicted = logits.max(1)
+                    test_total += y.size(0)
+                    test_correct += predicted.eq(y).sum().item()
+                    num_test_batches += 1
+
+                    if args.verbose:
+                        test_iter.set_description(f"Val Loss: {test_loss/num_test_batches:.4f} | Acc: {100.*test_correct/test_total:.2f}%")
+
+            test_acc = 100. * test_correct / test_total
+            test_loss = test_loss / num_test_batches
+
+            print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {epoch_train_loss:.4f} | "
+                  f"Train Acc: {epoch_train_acc:.2f}% | Val Loss: {test_loss:.4f} | "
+                  f"Val Acc: {test_acc:.2f}%")
+
+            if args.wandb:
+                wandb.log({"epoch": epoch+1, "val_loss": test_loss, "val_acc": test_acc})
+
+            if test_acc > best_acc:
+                best_acc = test_acc
+                if args.save_model:
+                    torch.save(vit.state_dict(), "vit_best.pth")
+                    if args.verbose:
+                        print(f"Saved best model with accuracy: {best_acc:.2f}%")
+
+    print(f"Training completed. Best validation accuracy: {best_acc:.2f}%")
+
+    if args.save_model:
+        torch.save(vit.state_dict(), "vit_final.pth")
+        if args.verbose:
+            print("Saved final model")
+
+    if args.wandb:
+        wandb.finish()
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train ViT from scratch")
+    
+    # Training parameters
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size for training")
+    parser.add_argument("--epochs", type=int, default=10, help="Number of epochs to train")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--D", type=int, default=512, help="Model dimension")
+    parser.add_argument("--nlayers", type=int, default=6, help="Number of transformer layers")
+    
+    # Dataset parameters
+    parser.add_argument("--num_workers", type=int, default=1, help="Number of workers for data loading")
+    
+    # Misc parameters
+    parser.add_argument("--test_every", type=float, default=0.1, help="Fraction of epochs to test validation")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument("--save_model", action="store_true", help="Save model checkpoints")
+    parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
+    
+    args = parser.parse_args()
+    
+    start_time = time.time()
+    train(args)
+    elapsed_time = time.time() - start_time
+    print(f"Total training time: {elapsed_time/60:.2f} minutes")

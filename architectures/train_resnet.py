@@ -1,7 +1,25 @@
+'''
+Deep Residual Learning for Image Recognition
+(https://arxiv.org/pdf/1512.03385)
+
+Legendary paper, IMO, for an overlooked reason. I think most people don't get that ResNets are not always a better
+arch than contemporary vision SOTA eg VGG, the key different is that they SCALE better, eg. a ResNet18 is not really much better
+than a similarly sized VGG, but a ResNet50 IS much better than a VGG of that size. This was one of the first 
+"do simple things that scale" type innovations, not to mention the ResNet is the workhorse for image-recognition
+genuinely in production today at most companies who need this (which is a lot more than you'd think). Figure 4
+epitomizes the scaling point of view. 
+
+Also instructive because I think implementing an efficient Conv layer using the unfold trick to turn 
+serial convolution into a batch matmul is extremely helpful to learn how to "think in tensors and matmul" which 
+is ultimately key to going from a DL beginner to researcher. 
+
+'''
+
+
 import torch 
 import torch.nn as nn 
 from datasets import load_dataset
-import matplotlib.pyplot as plt
+import wandb
 from torchvision import transforms
 import torch.nn.functional as F
 import argparse
@@ -20,7 +38,10 @@ class Conv(nn.Module): # we write our own Conv class to understand the key unfol
 
     def forward(self, x): 
         """
-        The F.unfold trick that turns a convolution into a batched matmul is critical to understand here. 
+        The F.unfold trick that turns a convolution into a batched matmul is CRITICAL to understand here. 
+        The idea is that 1) a single conv can be written as a dot product/matmul, and that 2) 
+        each conv operation is independent, so that (1 + 2) a conv layer can be computed via a batched matmul 
+        which of course is exactly what GPUs are built for. 
 
         Input shape after unfold: [batch, ch_in * kernel_size * kernel_size, h_out * w_out]
         Conv weights shape: [ch_out, ch_in, kernel_size, kernel_size]
@@ -33,14 +54,29 @@ class Conv(nn.Module): # we write our own Conv class to understand the key unfol
         h_out = (h - self.size + 2*self.padding)//self.stride + 1
         w_out = (w - self.size + 2*self.padding)//self.stride + 1
 
+        ## important to understand what this is doing
         unfolded = F.unfold(x, 
                            kernel_size=self.size, 
                            stride=self.stride, 
                            padding=self.padding) # [b, ch_in * self.size * self.size, h_out * w_out]
         
         out = unfolded.transpose(1,2) @ self.weights # [b, h_out*w_out, ch_out]
+        ## end important to understand
+
         return out.transpose(1,2).reshape(b, self.ch_out, h_out, w_out) # [b, ch_out, h_out, w_out]
     
+
+'''
+these days everyone uses LayerNorm in eg. decoder-based transformers
+so implementing BatchNorm is quite instructive to see how things are different in vision/"the old days"
+plus BN is weird in that it uses batch statistics so is data-dependent in that way 
+which requires keeping track of non-trainable statistics in buffers, a useful exercise 
+since buffers are used often to track optimizer state and in other ways 
+
+it might seem tempting to gloss over normalization as just a "implementation detail" but actually 
+details like these can COMPLETELY change whether an architecture trains stably vs not, and thus whether 
+it is widely adopted or not. do NOT give into the temptation. re-implement this from scratch. 
+'''
 class BatchNorm(nn.Module): # [b, ch, h, w]
     def __init__(self, ch=3, eps=1e-5, mom=0.1):
         super().__init__()
@@ -61,11 +97,11 @@ class BatchNorm(nn.Module): # [b, ch, h, w]
         self.running_var = self.momentum * self.running_var + (1-self.momentum) * curr_vars 
         
         # normalize with our stats
-        if not self.training: 
+        if not self.training: # inference-time, use our stats averaged over training
             reshaped_mean = self.running_mean.reshape(1, -1, 1, 1)
             reshaped_var = self.running_var.reshape(1, -1, 1, 1)
             x_norm = (x - reshaped_mean) / torch.sqrt(reshaped_var + self.eps)
-        else: # train 
+        else: # train, use live stats
             reshaped_mean = curr_means.reshape(1, -1, 1, 1)
             reshaped_var = curr_vars.reshape(1, -1, 1, 1)
             x_norm = (x - reshaped_mean) / torch.sqrt(reshaped_var + self.eps)
@@ -103,6 +139,8 @@ class MaxPool2D(nn.Module):
         unfolded = unfolded.reshape(b, ch_in, self.size * self.size, h_out * w_out)
         return torch.max(unfolded, dim=2)[0].reshape(b, ch_in, h_out, w_out) # [b, ch_in, h_out, w_out], the [0] is because max returns (vals, indices)
         
+
+# from here on out, the implementation details (eg. constants) come from the ResNet paper 
 class ResBlock(nn.Module):
     """
     Standard ResNet18 residual block:
@@ -145,56 +183,68 @@ class ResBlock(nn.Module):
         h = self.bn2(self.act(self.layer2(h)))
         return self.act(skip + h)
     
-class ResNet18(nn.Module): 
-    def __init__(self, ch=3, h=224, w=224, num_classes=10): 
-        # ResBlock: [b, ch_in, h, w] -> [b, ch_out, h//2, w//2] if downsample else [b, ch_out, h, w]
+class ResNet18(nn.Module):
+    def __init__(self, ch=3, h=224, w=224, num_classes=10):
+        # resnet18 architecture from the paper. takes in images of shape [b, ch, h, w] and outputs class logits [b, num_classes]
         super().__init__()
-        self.ch_in = ch 
-        self.size = h 
+        self.ch_in = ch
+        self.size = h
 
-        # first, (b, 3, 224, 224) -> (b, 64, 56, 56)
+        # first conv block reduces spatial dims by 4x:
+        # (b, 3, 224, 224) -> (b, 64, 56, 56) through:
+        # - 7x7 conv with stride 2: halves spatial dims
+        # - 3x3 maxpool with stride 2: halves spatial dims again
         self.conv1 = Conv(ch_in=ch, ch_out=64, size=7, stride=2)
-        self.bn1 = BatchNorm(ch=64) 
+        self.bn1 = BatchNorm(ch=64)
         self.act = nn.ReLU()
         self.maxpool1 = MaxPool2D(size=3)
 
-        # layer1 (no downsampling in first layer)
+        # layer1: two residual blocks without downsampling
+        # maintains (b, 64, 56, 56) dimensions
         self.layer1 = nn.Sequential(
             ResBlock(ch_in=64, ch_out=64, downsample=False),
             ResBlock(ch_in=64, ch_out=64, downsample=False),
         )
 
-        # layer2
+        # layer2: first block downsamples spatially and doubles channels
+        # (b, 64, 56, 56) -> (b, 128, 28, 28)
         self.layer2 = nn.Sequential(
-            ResBlock(ch_in=64, ch_out=128, downsample=True), 
-            ResBlock(ch_in=128, ch_out=128, downsample=False), 
+            ResBlock(ch_in=64, ch_out=128, downsample=True),
+            ResBlock(ch_in=128, ch_out=128, downsample=False),
         )
 
-        # layer3 
+        # layer3: first block downsamples spatially and doubles channels
+        # (b, 128, 28, 28) -> (b, 256, 14, 14)
         self.layer3 = nn.Sequential(
-            ResBlock(ch_in=128, ch_out=256, downsample=True), 
-            ResBlock(ch_in=256, ch_out=256, downsample=False), 
+            ResBlock(ch_in=128, ch_out=256, downsample=True),
+            ResBlock(ch_in=256, ch_out=256, downsample=False),
         )
 
-        # layer4 
+        # layer4: first block downsamples spatially and doubles channels
+        # (b, 256, 14, 14) -> (b, 512, 7, 7)
         self.layer4 = nn.Sequential(
-            ResBlock(ch_in=256, ch_out=512, downsample=True), 
-            ResBlock(ch_in=512, ch_out=512, downsample=False), 
+            ResBlock(ch_in=256, ch_out=512, downsample=True),
+            ResBlock(ch_in=512, ch_out=512, downsample=False),
         )
 
+        # final classifier:
+        # - global average pool to remove spatial dims: (b, 512, 7, 7) -> (b, 512)
+        # - linear layer to get class logits: (b, 512) -> (b, num_classes)
         self.avgpool = lambda x: torch.mean(x, dim=(2, 3))
         self.classifier = nn.Linear(512, num_classes)
 
-    def forward(self, x): 
+    def forward(self, x):
         h = self.maxpool1(self.act(self.bn1(self.conv1(x))))
         h = self.layer1(h)
         h = self.layer2(h)
         h = self.layer3(h)
         h = self.layer4(h)
-        out = self.classifier(self.avgpool(h)) # out is [b, num_classes]
-        return out 
+        out = self.classifier(self.avgpool(h))  # out is [b, num_classes]
+        return out
 
-def initialize_weights(model):
+# imagine being so famous you got an initialization scheme named after you lol
+# >feelsKaimingMan
+def initialize_weights(model): 
     """Initialize model weights using Kaiming (He) initialization"""
     for m in model.modules():
         if isinstance(m, Conv):
@@ -208,25 +258,21 @@ def initialize_weights(model):
                 nn.init.constant_(m.bias, 0)
 
 def train(args):
-    # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if args.verbose:
         print(f"Using device: {device}")
     
-    # Initialize wandb if enabled
     if args.wandb:
-        import wandb
-        wandb.init(project="train_resnet")
+        # TODO. you may need to configure your api_key/account here
+        wandb.init(project="train_resnet") 
         wandb.config.update(args)
     
-    # Load dataset
     if args.verbose:
         print("Loading dataset...")
     
-    # Define transforms
     transform = transforms.Compose([
-        transforms.Resize(224),  # Resize to match ResNet input size
-        transforms.ToTensor(),  # Convert to tensor
+        transforms.Resize(224),  # resize to match ResNet input size
+        transforms.ToTensor(),  
         transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2470, 0.2435, 0.2616])  # CIFAR-10 normalization
     ])
     
@@ -234,7 +280,8 @@ def train(args):
     train_dataset = load_dataset("cifar10", split="train", streaming=True)
     val_dataset = load_dataset("cifar10", split="test", streaming=True)
     
-    # Create data loaders
+    # standard vision dataloader stuff, understanding composed transforms is
+    # not too important these days (2025) but make sure to understand dimensions  
     def collate_fn(batch):
         images = torch.stack([transform(sample['img'].convert('RGB')) for sample in batch])
         labels = torch.tensor([sample['label'] for sample in batch])
@@ -256,12 +303,10 @@ def train(args):
         pin_memory=True
     )
     
-    # Create model
     model = ResNet18(num_classes=10)
-    initialize_weights(model)
+    initialize_weights(model) # initialization scheme comes from ResNet paper 
     model = model.to(device)
     
-    # Define loss function and optimizer
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(
         model.parameters(),
@@ -270,17 +315,15 @@ def train(args):
         weight_decay=args.weight_decay
     )
     
-    # Learning rate scheduler
     scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer,
         step_size=args.lr_step,
         gamma=args.lr_gamma
     )
     
-    # Training loop
+    # training and val loop, pretty standard, more important to understand the arch carefully 
     best_acc = 0.0
     for epoch in range(args.epochs):
-        # Train
         model.train()
         train_loss = 0.0
         train_correct = 0
@@ -296,20 +339,20 @@ def train(args):
         for images, labels in train_iter:
             images, labels = images.to(device), labels.to(device)
             
-            # Forward pass
+            # fwd
             outputs = model(images)
             loss = criterion(outputs, labels)
             
-            # Backward and optimize
+            # bwd + step 
             optimizer.zero_grad()
             loss.backward()
             
-            # Apply gradient clipping
+            # clipping is an important detail for stable training 
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             
             optimizer.step()
             
-            # Statistics
+            # log statistics
             train_loss += loss.item()
             _, predicted = outputs.max(1)
             train_total += labels.size(0)
@@ -329,7 +372,7 @@ def train(args):
         if args.wandb:
             wandb.log({"epoch": epoch+1, "train_loss": epoch_train_loss, "train_acc": epoch_train_acc})
         
-        # Test if needed
+        # test every so often 
         if (epoch + 1) % max(1, int(args.epochs * args.test_every)) == 0 or epoch == args.epochs - 1:
             model.eval()
             val_loss = 0.0
@@ -383,7 +426,7 @@ def train(args):
     
     print(f"Training completed. Best validation accuracy: {best_acc:.2f}%")
     
-    # Save final model
+    # save final model
     if args.save_model:
         torch.save(model.state_dict(), "resnet18_final.pth")
         if args.verbose:
@@ -396,21 +439,25 @@ def train(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train ResNet18 from scratch")
     
-    # Training parameters
+    # training params 
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size for training")
     parser.add_argument("--epochs", type=int, default=90, help="Number of epochs to train")
     parser.add_argument("--lr", type=float, default=0.1, help="Initial learning rate")
+    # yes, I too (an LLM person), was surprised at how high ^this^ LR is, but indeed it's common in vision 
     parser.add_argument("--momentum", type=float, default=0.9, help="Momentum for SGD optimizer")
+    # also notice how SGD is preferred in vision compared to Adam! 
+    # there are interesting papers studying where this asymmetry comes from, eg. 
+    # see eg. "Why are Adaptive Methods Good for Attention Models?" (https://arxiv.org/abs/1912.03194)
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay for SGD optimizer")
     parser.add_argument("--lr_step", type=int, default=30, help="Step size for learning rate scheduler")
     parser.add_argument("--lr_gamma", type=float, default=0.1, help="Gamma for learning rate scheduler")
     
-    # Dataset parameters
+    # dataset params
     parser.add_argument("--train_size", type=int, default=50000, help="Number of training samples to use")
     parser.add_argument("--val_size", type=int, default=10000, help="Number of validation samples to use")
     parser.add_argument("--num_workers", type=int, default=1, help="Number of workers for data loading")
     
-    # Misc parameters
+    # misc params
     parser.add_argument("--test_every", type=float, default=0.1, help="Fraction of epochs to test validation")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--save_model", action="store_true", help="Save model checkpoints")
@@ -418,7 +465,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    # Start training
+    # train 
     start_time = time.time()
     train(args)
     elapsed_time = time.time() - start_time

@@ -1,7 +1,33 @@
+'''
+This implements "Scalable Diffusion Models with Transformers" 
+(https://arxiv.org/pdf/2212.09748)
+
+
+TLDR: 
+
+• Unlike language models predicting next tokens, DiT predicts the NOISE was added to corrupt an image given the noised image as input
+    (Actually, it takes in a VAE embeddings of the noised image, and notice predicting noise is equivalent to predicting the true image)
+  - Language models: "What token comes next?"
+  - DiT: "What noise made this image blurry?"
+
+• Three key inputs:
+  - Noisy image x_t 
+  - Timestep t (how noisy the image is)
+  - Class label c (what we want to generate)
+
+• Novel conditioning approach:
+  - Processes all pixels at once (not sequential like language)
+  - Class label and timestep modify how transformer processes the noise
+  - Done via learned scaling factors in each layer
+
+• Training: Add noise to real images, train model to predict that noise
+• Generation: Start with pure noise, gradually denoise while conditioning on desired class
+
+'''
+
 import torch 
 import torch.nn.functional as F
 import wandb
-from torchtyping import TensorType as TT 
 import torchvision
 import torchvision.transforms as transforms
 import ssl
@@ -23,6 +49,8 @@ torch.set_float32_matmul_precision('high')
 # hack to get mnist data, don't do in production
 ssl._create_default_https_context = ssl._create_unverified_context
 
+
+### SAME AS VANILLA TRANSFORMER ####
 class Attention(torch.nn.Module): 
     def __init__(self, D: int = 768, head_dim: int = 64):
         super().__init__()
@@ -36,7 +64,7 @@ class Attention(torch.nn.Module):
         self.nheads = self.D // self.head_dim 
 
 
-    def forward(self, x: TT["b", "s", "d"]) -> TT["b", "s", "d"]: # [B, S, D] -> [B, S, D]
+    def forward(self, x): # [B, S, D] -> [B, S, D]
         B, S, D = x.shape 
         q, k, v = self.wq(x), self.wk(x), self.wv(x) # [B, S, D]
         q = q.reshape(B, S, self.nheads, self.head_dim).transpose(1, 2) # [B, nh, S, hd]
@@ -76,6 +104,7 @@ class LN(torch.nn.Module): # BSD -> BSD, just subtracts mean and rescales by std
         std = x.std(dim=-1, keepdim=True)
         return self.std_scale * ((x - mean)/(std + self.eps)) + self.mean_scale
 
+### DIFFERENT FROM VANILLA TRANSFORMER ####
 class DiTEmbeddings(torch.nn.Module): # (b, ch, h, w) -> (b, np, d)
     def __init__(self, D=512, t=1, h=3, w=3, ch=4, num_classes=10): 
         super().__init__()
@@ -185,10 +214,9 @@ class DiT(torch.nn.Module):
                 torch.nn.init.constant_(m.weight, 1.0)
                 torch.nn.init.constant_(m.bias, 0.0)
                 
-        # Initialize all layers
         self.apply(init_weights)
         
-        # Zero-initialize the output layer
+        # zero-init final layer 
         if isinstance(self.predict_err_vector.linear, torch.nn.Linear):
             torch.nn.init.constant_(self.predict_err_vector.linear.weight, 0.0)
             torch.nn.init.constant_(self.predict_err_vector.linear.bias, 0.0)
@@ -215,8 +243,8 @@ print(f'Loading MNIST...')
 trainset = torchvision.datasets.MNIST(root='./data', train=True,
                                     download=True, transform=transform)
 
-# Revised get_batch to enforce fixed, full batches.
-# Reference: [PyTorch Forum discussion](https://discuss.pytorch.org/t/runtimeerror-the-size-of-tensor-a-5-must-match-the-size-of-tensor-b-32-at-non-singleton-dimension-3/127427)
+# modify get_batch to enforce fixed, full batches.
+# see [PyTorch Forum discussion](https://discuss.pytorch.org/t/runtimeerror-the-size-of-tensor-a-5-must-match-the-size-of-tensor-b-32-at-non-singleton-dimension-3/127427)
 def get_batch(betas, batch_size, T, dataiter):
     x0, c = next(dataiter)
     x0, c = x0.cuda(), c.cuda()
@@ -253,17 +281,18 @@ def update_ema_model(model, ema_model, decay=0.999):
         for param, ema_param in zip(model.parameters(), ema_model.parameters()):
             ema_param.data = decay * ema_param.data + (1 - decay) * param.data
 
-def train(num_steps=50000, D=384, nlayers=8, batch_size=256, T=300, save=False, noise_schedule="cosine", use_wandb=False, sample_every=5000):
-    print(f'Starting training with parameters:')
-    print(f'  Number of steps: {num_steps}')
-    print(f'  Model dimension: {D}')
-    print(f'  Number of layers: {nlayers}')
-    print(f'  Batch size: {batch_size}')
-    print(f'  Diffusion steps (T): {T}')
-    print(f'  Noise schedule: {noise_schedule}')
-    print(f'  Save model: {save}')
-    print(f'  Use wandb: {use_wandb}')
-    print(f'  Sample every: {sample_every} steps')
+def train(num_steps=50000, D=384, nlayers=8, batch_size=256, T=300, save=False, noise_schedule="cosine", use_wandb=False, sample_every=5000, verbose=False):
+    if verbose:
+        print(f'Starting training with parameters:')
+        print(f'  Number of steps: {num_steps}')
+        print(f'  Model dimension: {D}')
+        print(f'  Number of layers: {nlayers}')
+        print(f'  Batch size: {batch_size}')
+        print(f'  Diffusion steps (T): {T}')
+        print(f'  Noise schedule: {noise_schedule}')
+        print(f'  Save model: {save}')
+        print(f'  Use wandb: {use_wandb}')
+        print(f'  Sample every: {sample_every} steps')
     
     if use_wandb:
         run_name = f"DiT_D{D}_L{nlayers}_B{batch_size}_T{T}_{noise_schedule}_fixed_999ema"
@@ -299,8 +328,9 @@ def train(num_steps=50000, D=384, nlayers=8, batch_size=256, T=300, save=False, 
     try:
         model = torch.compile(model)
     except (RuntimeError, TypeError) as e:
-        print(f"Warning: Could not compile model: {e}")
-        print("Continuing with uncompiled model")
+        if verbose:
+            print(f"Warning: Could not compile model: {e}")
+            print("Continuing with uncompiled model")
     ema_model = copy.deepcopy(model)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     
@@ -334,7 +364,8 @@ def train(num_steps=50000, D=384, nlayers=8, batch_size=256, T=300, save=False, 
             })
             
         if sample_every > 0 and (step + 1) % sample_every == 0:
-            print(f"\nSampling images at step {step+1}...")
+            if verbose:
+                print(f"\nSampling images at step {step+1}...")
             sample_classes = [0, 2, 4, 7, 9]
             for class_label in sample_classes:
                 sample_images(model, ema_model, betas, T, [class_label], num_samples=10, save=True, step=step+1)
@@ -414,6 +445,7 @@ if __name__ == "__main__":
     parser.add_argument('--wandb', action='store_true', help='Use Weights & Biases for logging')
     parser.add_argument('--sample_every', type=int, default=5000, 
                         help='Sample images every N steps during training (0 to disable)')
+    parser.add_argument('--verbose', action='store_true', help='Print detailed training information')
     
     args = parser.parse_args()
     
@@ -426,7 +458,8 @@ if __name__ == "__main__":
         save=args.save,
         noise_schedule=args.noise_schedule,
         use_wandb=args.wandb,
-        sample_every=args.sample_every
+        sample_every=args.sample_every,
+        verbose=args.verbose
     )
     
     for class_label in range(10):

@@ -1,3 +1,17 @@
+'''
+Recurrent Neural Networks (RNNs) are the OG sequence model, and while they've been largely supplanted by transformers,
+they remain instructive for a few key reasons:
+1) They are the simplest possible way to process sequences, just iteratively updating a fixed-size state vector
+2) They demonstrate key concepts like vanishing/exploding gradients that plague all sequence models
+3) They show why normalization (here LayerNorm) is critical for stable training of deep nets
+4) The residual connections (0.1 * input) show an early example of skip connections that are now ubiquitous
+
+The architecture here is a simple multi-layer RNN with LayerNorm and residual connections. While basic,
+it demonstrates core sequence modeling concepts that carry over directly to transformers and other modern architectures. Also, 
+we'll see in Linear Attention that there is a interpretation of Transfomers as RNNs if you modify their 
+architecture a little bit. 
+'''
+
 import argparse
 import torch
 import torch.nn as nn
@@ -9,6 +23,7 @@ import wandb
 from datasets import load_dataset
 from tqdm import tqdm
 
+# notice how simple an RNN is to implement because of parameter sharing, compared to a transformer 
 class RNN(nn.Module):  # [b, s] -> [b, s, v] with a classification head on the final hidden state
     def __init__(self, embed_dim=512, state_size=512, V=100, nlayers=4):
         super().__init__()
@@ -40,13 +55,13 @@ class RNN(nn.Module):  # [b, s] -> [b, s, v] with a classification head on the f
             outputs.append(self.Wsy(h[-1]))
         return torch.stack(outputs, dim=1), self.Wsy(h[-1])  # [b, s, V], [b, V]
 
-# Define character vocabulary (letters, numbers, punctuation, whitespace)
+# char level vocab for simplicity
 chars = string.printable
 char_to_idx = {ch: i for i, ch in enumerate(chars)}
 idx_to_char = {i: ch for i, ch in enumerate(chars)}
 vocab_size = len(chars)
 
-# Custom collate function for character encoding
+# Custom collate function for character encoding, not too important
 def collate_chars(batch):
     texts = [item['text'] for item in batch]
     encoded = [[char_to_idx[c] for c in text if c in chars] for text in texts]
@@ -63,11 +78,13 @@ def main():
     parser.add_argument("--num_steps", type=int, default=4001, help="Optional limit on training steps")
     parser.add_argument("--nlayers", type=int, default=4, help="Number of RNN layers")
     parser.add_argument("--verbose", action="store_true", help="Print additional training details")
-    # Removed the previous "--save" argument as checkpoints are now saved every 1000 steps
+    parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
     args = parser.parse_args()
 
-    # Initialize wandb logging under project "train_rnn"
-    wandb.init(project="train_rnn", config=vars(args))
+
+    if args.wandb:
+        # you may have to login with your wandb credential here 
+        wandb.init(project="train_rnn", config=vars(args))
 
     if args.verbose:
         print("Loading dataset...")
@@ -82,13 +99,12 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = RNN(embed_dim=args.embed_dim, state_size=args.state_size, V=vocab_size, nlayers=args.nlayers).to(device)
     
-    # Print parameter count
     param_count = sum(p.numel() for p in model.parameters())
     print(f"Model has {param_count:,} parameters")
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.lr)
     
-    # Set up learning rate scheduler with warmup (using math for cosine computation to avoid tensor/float conflicts)
+    # we use a cosine lr schedule since important for RNN 
     total_steps = len(train_dataloader) if args.num_steps is None else args.num_steps
     warmup_steps = int(0.05 * total_steps)
     scheduler = torch.optim.lr_scheduler.LambdaLR(
@@ -101,14 +117,14 @@ def main():
     
     criterion = nn.CrossEntropyLoss()
 
-    # Define BOS token as the last vocab index
+    # define BOS token as the last vocab index
     bos_token = vocab_size - 1
 
     total_loss = 0.0
     steps = 0
 
     # Create directory for periodic checkpoints
-    os.makedirs('hypers', exist_ok=True)
+    os.makedirs('rnn_checkpoints', exist_ok=True)
 
     if args.verbose:
         print("Starting training loop...")
@@ -133,8 +149,9 @@ def main():
         total_loss += loss.item()
         steps += 1
 
-        # Log loss and learning rate to wandb
-        wandb.log({'loss': loss.item(), 'lr': scheduler.get_last_lr()[0]}, step=steps)
+        # log to wandb 
+        if args.wandb:
+            wandb.log({'loss': loss.item(), 'lr': scheduler.get_last_lr()[0]}, step=steps)
 
         if steps % 10 == 0:
             print(f"Step {steps}, Loss: {loss.item():.4f}, LR: {scheduler.get_last_lr()[0]:.2e}")
@@ -149,6 +166,9 @@ def main():
 
     avg_loss = total_loss / steps if steps > 0 else float('nan')
     print(f"Average Loss: {avg_loss:.4f}")
+
+    if args.wandb:
+        wandb.finish()
 
 if __name__ == "__main__":
     main()
