@@ -1,11 +1,11 @@
-# Beyond NanoGPT: Go from LLM noob to AI Researchitectureser!
+# Beyond NanoGPT: From LLM Beginner to AI Researcher!
 
-Welcome to **Beyond-NanoGPT** – the minimal and educational repo aiming to bridge between nanoGPT and researchitectures-level deep learning. 
+Welcome to **Beyond-NanoGPT** – the minimal and educational repo aiming to bridge between nanoGPT and research-level deep learning. 
 This repo includes annotated and from-scratch implementations of tens of crucial modern techniques in frontier deep learning, aiming to technical newcomers learn enough to 
-start running experiments and thus contributing to modern deep learning researchitectures. 
+start running experiments and thus contributing to modern deep learning research. 
 
 It implements everything from inference techniques like KV caching and speculative decoding to 
-architecturesitectures like vision and diffusion transformers to attention variants like linear or sparse attention. Thousands of lines of 
+architectures like vision and diffusion transformers to attention variants like linear or sparse attention. Thousands of lines of 
 self-contained and hand-written PyTorch. 
 
 ## Quickstart
@@ -79,6 +79,7 @@ I recommend either a consumer laptop with GPU, paying for Colab/Runpod, or simpl
 - The name of the repo is inspired by the wonderful NanoGPT repo by Andrej Karpathy, 
 though this repo is not officially associated. 
 - Feel free to email me at [tanishq@stanford.edu](mailto:tanishq@stanford.edu) with feedback, things you want implemented, 
-and to raise any bugs as GitHub issues. I am committing to implementing new techniques people want over the next month!
+and to raise any bugs as GitHub issues. I am committing to implementing new techniques people want over the next month, and 
+welcome contributions or bug fixes by others. 
 
 **Happy coding, and may your gradients never vanish!**
