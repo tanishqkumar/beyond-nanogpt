@@ -10,7 +10,7 @@ It implements everything from inference techniques like KV caching and speculati
 architectures like vision and diffusion transformers to attention variants like linear or sparse attention. *Thousands of lines of 
 self-contained and hand-written PyTorch to help you upskill your technical fundamentals.* The goal is for you to 
 read and reimplement the techniques and systems in this repository most relevant to your desired research area to learn 
-about the nitty-gritty details more deeply. Get cooking!
+about the nitty-gritty details more deeply. 
 
 ## Quickstart
 1. **Clone the Repo:**
