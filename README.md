@@ -1,8 +1,7 @@
-## Beyond NanoGPT: From LLM Beginner to AI Researcher!
+## Beyond NanoGPT: Go From LLM Beginner to AI Researcher!
 
 **Beyond-NanoGPT** is the minimal and educational repo aiming to **bridge between nanoGPT and research-level deep learning.** 
-This repo includes annotated and from-scratch implementations of tens of crucial modern techniques in frontier deep learning, aiming to help newcomers learn enough practical deep learning to 
-start running experiments and thus contributing to modern research. 
+This repo includes annotated and from-scratch implementations of tens of crucial modern techniques in frontier deep learning, aiming to help newcomers learn enough practical deep learning to start running experiments and thus contributing to modern research. 
 
 It implements everything from inference techniques like KV caching and speculative decoding to 
 architectures like vision and diffusion transformers to attention variants like linear or sparse attention. *Thousands of lines of 
@@ -16,7 +15,11 @@ about the nitty-gritty details more deeply. Get cooking!
    git clone https://github.com/tanishqkumar/beyond-nanogpt.git
    ```
 2. **Get Minimal Dependencies:**
-   ```pip install torch numpy torchvision wandb tqdm transformers datasets diffusers matplotlib pillow jupyter```
+
+   ```bash
+   pip install torch numpy torchvision wandb tqdm transformers datasets diffusers matplotlib pillow jupyter
+   ```
+
 3. **Start learning!**
    The code is meant for you to read carefully, hack around with, then re-implement yourself from scratch and compare to. 
    You can just run `.py` files with vanilla Python in the following way. 
@@ -76,6 +79,4 @@ though this repo has no official association with it.
 and to raise any bugs as GitHub issues. I am committing to implementing new techniques people want over the next month, and 
 welcome contributions or bug fixes by others. 
 
-**2025 is a wild time to be alive, and we need 
-all hands on deck on frontier AI research.**
-**Happy coding, and may your gradients never vanish!**
+**2025 is a wild time to be alive, and we need all hands on deck on frontier AI research. Happy coding, and may your gradients never vanish!**
