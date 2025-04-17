@@ -225,7 +225,7 @@ class DiT(torch.nn.Module):
         h, cond = self.embed(x, t, c)
         for layer in self.layers: 
             h = layer(h, cond) 
-        return self.predict_err_vector(h) # unemeddings, returns [b, np, h*w*ch] in latent space 
+        return self.predict_err_vector(h) # unembeddings, returns [b, np, h*w*ch] in latent space 
 
 # Load pretrained VAE model properly
 print(f'Loading VAE...')
