@@ -61,9 +61,11 @@ about the nitty-gritty details more deeply.
 ### Key Transformer++ Optimizations
 - ✅ KV Caching `transformer++/KV_cache.ipynb`
 - ✅ Speculative Decoding `transformer++/speculative_decoding.ipynb`
-- ✅ Fast Dataloading `train-vanilla-transformer/`
+- ✅ Optimized Dataloading `train-vanilla-transformer/`
+   - ✅ Producer-consumer asynchronous dataloading
+   - ✅ Sequence packing
 - ✅ Byte-Pair Encoding `transformer++/bpe.ipynb`
-- [Coming Soon]: RoPE embeddings, continuous batching, sequence packing.
+- [Coming Soon]: RoPE embeddings, continuous batching.
 
 ### Key RL Techniques
 - [Coming Soon]: neural chess engine (self-play), LLM-RLHF, GRPO for humour with RLAIF. 
@@ -77,10 +79,8 @@ I recommend either a consumer laptop with GPU, paying for Colab/Runpod,
 or simply asking a compute provider or local university for a compute grant if those are out of 
 budget (this works surprisingly well, people are very generous). 
 - Most `.py` scripts take in `--verbose` and `--wandb` as command line arguments when you run them, to enable detailed logging and sending logs to wandb, respectively. Feel free to hack these to your needs. 
-- The name of the repo is inspired by the wonderful NanoGPT repo by Andrej Karpathy, 
-though this repo has no official association with it.  
 - Feel free to email me at [tanishq@stanford.edu](mailto:tanishq@stanford.edu) with feedback, implementation/feature requests, 
 and to raise any bugs as GitHub issues. I am committing to implementing new techniques people want over the next month, and 
 welcome contributions or bug fixes by others. 
 
-**2025 is a wild time to be alive, and we need all hands on deck on frontier AI research. Happy coding, and may your gradients never vanish!**
+**Happy coding, and may your gradients never vanish!**
