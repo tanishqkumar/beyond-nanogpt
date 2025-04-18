@@ -42,26 +42,29 @@ about the nitty-gritty details more deeply.
    
 
 ## Current Implementations and Roadmap
+
+(*) denotes implementations I believe to be absolutely fundamental. 
+
 ### Key Deep Learning architectures
-- ✅ Vanilla causal Transformer for language modeling (starting point) `train-vanilla-transformer/train.py`
+- ✅ Vanilla causal Transformer for language modeling (starting point, *) `train-vanilla-transformer/train.py`
 - ✅ Vision Transformer (ViT) `architectures/train_vit.py`
 - ✅ Diffusion Transformer (DiT) `architectures/train_dit.py`
-- ✅ RNN for language modeling `architectures/train_rnn.py`
-- ✅ Residual Networks for Image Recognition (ResNet) `architectures/train_resnet.py`
+- ✅ RNN for language modeling `architectures/train_rnn.py` (*)
+- ✅ Residual Networks for Image Recognition (ResNet) `architectures/train_resnet.py` (*)
 - [Coming Soon]: MoE, Decision Transformers, Mamba
 
 ### Key Attention Variants
-- ✅ Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb`
-- ✅ Multi-head Self-Attention `attention-variants/mhsa.ipynb`
+- ✅ Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` (*)
+- ✅ Multi-head Self-Attention `attention-variants/mhsa.ipynb` (*)
 - ✅ Grouped-Query Attention `attention-variants/gqa.ipynb`
-- ✅ Linear Attention `attention-variants/linear_attention.ipynb`
+- ✅ Linear Attention `attention-variants/linear_attention.ipynb` 
 - ✅ Sparse Attention `attention-variants/sparse_attention.ipynb`
 - [Coming Soon]: Multi-Latent Attention, Ring Attention, Flash Attention
 
 ### Key Transformer++ Optimizations
-- ✅ KV Caching `transformer++/KV_cache.ipynb`
+- ✅ KV Caching `transformer++/KV_cache.ipynb` (*)
 - ✅ Speculative Decoding `transformer++/speculative_decoding.ipynb`
-- ✅ Optimized Dataloading `train-vanilla-transformer/`
+- ✅ Optimized Dataloading `train-vanilla-transformer/` (*)
    - ✅ Producer-consumer asynchronous dataloading
    - ✅ Sequence packing
 - ✅ Byte-Pair Encoding `transformer++/bpe.ipynb`
