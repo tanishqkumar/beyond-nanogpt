@@ -51,7 +51,7 @@ details often glossed over both in papers and production codebases.*
 - ✅ Diffusion Transformer (DiT) `architectures/train_dit.py`
 - ✅ RNN for language modeling `architectures/train_rnn.py` 
 - ✅ Residual Networks for Image Recognition (ResNet) `architectures/train_resnet.py`
-- [Coming Soon]: MoE, Decision Transformers, Mamba, LSTM, gMLP. 
+- [Coming Soon]: MoE, Decision Transformers, Mamba, LSTM, MLP-Mixer. 
 
 ### Key Attention Variants
 - ✅ Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` 
@@ -71,7 +71,16 @@ details often glossed over both in papers and production codebases.*
 - [Coming Soon]: RoPE embeddings, continuous batching, FlashAttention.
 
 ### Key RL Techniques
-- [Coming Soon]: neural chess engine (self-play), LLMs: RLHF, DPO, GRPO for reasoning with outcome-rewards, GRPO for humour with RLAIF. 
+- [Coming Soon]:
+   - Classical RL:
+      - Deep Q-learning on Cartpole
+      - Neural Chess Engine (self-play, MCTS, policy-gradient)
+   - LLMs
+      - RLHF a base model with UltraFeedback 
+      - DPO a base model with UltraFeedback
+      - GRPO for reasoning: outcome reward on MATH
+      - GRPO for humor: RLAIF reward signal 
+      - GRPO for tool-use: constitutional AI 
 
 ---
 
