@@ -9,9 +9,10 @@ This repo includes annotated and from-scratch implementations of tens of crucial
 It implements everything from inference techniques like KV caching and speculative decoding to 
 architectures like vision and diffusion transformers to attention variants like linear or sparse attention. *Thousands of lines of 
 self-contained and hand-written PyTorch to help you upskill your technical fundamentals.* The goal is for you to 
-read and reimplement the techniques and systems in this repository most relevant to your desired research area to learn 
-about the nitty-gritty details more deeply. Because everything is implemented by-hand, care has been taken to add comments and explain 
-the particularly tricky and subtle implementation details which are often not discussed either in papers or production codebases. 
+read and reimplement the techniques and systems in this repository to learn the nitty-gritty details more deeply. 
+
+*Because everything is implemented by-hand, the code comments explain the especially subtle
+details often glossed over both in papers and production codebases.*
 
 ## Quickstart
 1. **Clone the Repo:**
