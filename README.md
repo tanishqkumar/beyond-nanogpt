@@ -10,7 +10,8 @@ It implements everything from inference techniques like KV caching and speculati
 architectures like vision and diffusion transformers to attention variants like linear or sparse attention. *Thousands of lines of 
 self-contained and hand-written PyTorch to help you upskill your technical fundamentals.* The goal is for you to 
 read and reimplement the techniques and systems in this repository most relevant to your desired research area to learn 
-about the nitty-gritty details more deeply. 
+about the nitty-gritty details more deeply. Because everything is implemented by-hand, care has been taken to add comments and explain 
+the particularly tricky and subtle implementation details which are often not discussed either in papers or production codebases. 
 
 ## Quickstart
 1. **Clone the Repo:**
@@ -43,35 +44,33 @@ about the nitty-gritty details more deeply.
 
 ## Current Implementations and Roadmap
 
-(*) denotes implementations I believe to be absolutely fundamental. 
-
 ### Key Deep Learning architectures
-- ✅ Vanilla causal Transformer for language modeling (starting point, *) `train-vanilla-transformer/train.py`
+- ✅ Vanilla causal Transformer for language modeling (starting point) `train-vanilla-transformer/train.py`
 - ✅ Vision Transformer (ViT) `architectures/train_vit.py`
 - ✅ Diffusion Transformer (DiT) `architectures/train_dit.py`
-- ✅ RNN for language modeling `architectures/train_rnn.py` (*)
-- ✅ Residual Networks for Image Recognition (ResNet) `architectures/train_resnet.py` (*)
-- [Coming Soon]: MoE, Decision Transformers, Mamba
+- ✅ RNN for language modeling `architectures/train_rnn.py` 
+- ✅ Residual Networks for Image Recognition (ResNet) `architectures/train_resnet.py`
+- [Coming Soon]: MoE, Decision Transformers, Mamba, LSTM, gMLP. 
 
 ### Key Attention Variants
-- ✅ Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` (*)
-- ✅ Multi-head Self-Attention `attention-variants/mhsa.ipynb` (*)
+- ✅ Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` 
+- ✅ Multi-head Self-Attention `attention-variants/mhsa.ipynb` 
 - ✅ Grouped-Query Attention `attention-variants/gqa.ipynb`
 - ✅ Linear Attention `attention-variants/linear_attention.ipynb` 
 - ✅ Sparse Attention `attention-variants/sparse_attention.ipynb`
-- [Coming Soon]: Multi-Latent Attention, Ring Attention, Flash Attention
+- [Coming Soon]: Multi-Latent Attention, Cross-Attention, Ring Attention. 
 
 ### Key Transformer++ Optimizations
-- ✅ KV Caching `transformer++/KV_cache.ipynb` (*)
+- ✅ KV Caching `transformer++/KV_cache.ipynb` 
 - ✅ Speculative Decoding `transformer++/speculative_decoding.ipynb`
-- ✅ Optimized Dataloading `train-vanilla-transformer/` (*)
+- ✅ Optimized Dataloading `train-vanilla-transformer/` 
    - ✅ Producer-consumer asynchronous dataloading
    - ✅ Sequence packing
 - ✅ Byte-Pair Encoding `transformer++/bpe.ipynb`
-- [Coming Soon]: RoPE embeddings, continuous batching.
+- [Coming Soon]: RoPE embeddings, continuous batching, FlashAttention.
 
 ### Key RL Techniques
-- [Coming Soon]: neural chess engine (self-play), LLM-RLHF, GRPO for humour with RLAIF. 
+- [Coming Soon]: neural chess engine (self-play), LLMs: RLHF, DPO, GRPO for reasoning with outcome-rewards, GRPO for humour with RLAIF. 
 
 ---
 
