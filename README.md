@@ -50,8 +50,9 @@ details often glossed over both in papers and production codebases.*
 - ✅ Vision Transformer (ViT) `architectures/train_vit.py`
 - ✅ Diffusion Transformer (DiT) `architectures/train_dit.py`
 - ✅ RNN for language modeling `architectures/train_rnn.py` 
-- ✅ Residual Networks for Image Recognition (ResNet) `architectures/train_resnet.py`
-- [Coming Soon]: MLP-Mixer, MoE, Decision Transformers, LSTM, Mamba. 
+- ✅ Residual Networks (ResNet) `architectures/train_resnet.py`
+- ✅ MLP-Mixer `architectures/train_mlp_mixer.py`
+- [Coming Soon]: MoE, Decision Transformers, LSTM, Mamba. 
 
 ### Key Attention Variants
 - ✅ Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` 
@@ -59,7 +60,8 @@ details often glossed over both in papers and production codebases.*
 - ✅ Grouped-Query Attention `attention-variants/gqa.ipynb`
 - ✅ Linear Attention `attention-variants/linear_attention.ipynb` 
 - ✅ Sparse Attention `attention-variants/sparse_attention.ipynb`
-- [Coming Soon]: Cross-Attention, Multi-Latent Attention. 
+- ✅ Cross Attention `attention-variants/cross_attention.ipynb`
+- [Coming Soon]: Multi-Latent Attention. 
 
 ### Key Transformer++ Optimizations
 - ✅ KV Caching `transformer++/KV_cache.ipynb` 
