@@ -95,7 +95,7 @@ details often glossed over both in papers and production codebases.*
 
 ### Key Agents Techniques [Coming Soon]
 - Simulate a Society as in "Generative Simulcra"
-- Implement ReAct + Function Calling on a Base Model 
+- Implement ReAct + Function Calling on a base model so it can use tools to respond to queries
 - Make an LLM agent that takes (instructions, GitHub credentials) and makes a simple PR in the repo
 - Make an LLM agent that can add items to cart and screenshot the total on WebArena
 
