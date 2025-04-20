@@ -91,6 +91,7 @@ details often glossed over both in papers and production codebases.*
 - Minimal FSDP re-implementation (data and tensor parallelism)
 - Ring Attention
 - Flash Attention
+- Paged Attention 
 - 4-bit weight-only inference quantization
 
 ### Key Agents Techniques [Coming Soon]
@@ -100,12 +101,14 @@ details often glossed over both in papers and production codebases.*
 - Make an LLM agent that can add items to cart and screenshot the total on WebArena
 
 ### Key Diffusion Techniques [Coming Soon]
-- Image generation ith a GAN
+- Image generation with a GAN
 - 32 × 32 DDPM on CIFAR‑10 with DDIM sampling
+- Classifier-free guidance
 - Implement a consistency model
-- Score‑Distillation Cross‑Modal Generation
-- Conditional text generation with a Diffusion-Language Model
-
+   - Compare scaling laws to a standard diffusion transformer 
+- Score‑distillation cross‑modal generation
+- Conditional text generation with a diffusion-language model in latent space
+   - Implement discrete diffusion for language modeling 
 
 ---
 
