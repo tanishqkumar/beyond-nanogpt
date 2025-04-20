@@ -37,13 +37,15 @@ ssl._create_default_https_context = ssl._create_unverified_context
 
 class MLP(nn.Module): 
     def __init__(self, in_dim, out_dim, mult=4, act=nn.GELU()): 
-        super().__init__() # Added missing super init
+        super().__init__() 
         self.w_up = nn.Linear(in_dim, in_dim * mult)
         self.w_down = nn.Linear(in_dim * mult, out_dim)
         self.act = act 
 
     def forward(self, x): # operates on last dim 
         return self.w_down(self.act(self.w_up(x)))
+        # this is basically a bottleneck MLP - we project up to a higher dim, apply non-linearity, then project back down
+        # the mult=4 is a common choice in transformers too (4x expansion in FFN layers)
 
 class LN(nn.Module): 
     def __init__(self, dim, eps=1e-8): 
@@ -56,6 +58,9 @@ class LN(nn.Module):
         mean = x.mean(dim=-1, keepdim=True)
         var = x.var(dim=-1, keepdim=True, unbiased=False)
         return self.scale * (x - mean) / (var + self.eps).sqrt() + self.shift
+        # layer norm is crucial for training deep networks - it stabilizes activations
+        # unlike batch norm, it normalizes across features (last dim) not batch samples
+        # this makes it more suitable for sequence models and variable batch sizes
 
 class GlobalAvgPool(nn.Module):
     # For MLP Mixer on CIFAR-10:
@@ -66,6 +71,9 @@ class GlobalAvgPool(nn.Module):
         
     def forward(self, x):
         return x.mean(dim=1)
+        # simple but effective - we just average across all patches
+        # this is a parameter-free way to aggregate spatial information
+        # similar to global average pooling in CNNs, but operating on patches instead of pixels
 
 
 class Embeddings(nn.Module): 
@@ -88,6 +96,9 @@ class Embeddings(nn.Module):
         h = h.transpose(1, 2) # [b, np, in_ch, ps, ps]
         h = h.reshape(b, self.np, -1) # [b, np, in_ch * ps * ps]
         return self.embeddings(h) # [b, np, D]
+        # this reshaping dance is the key to patching - we're rearranging the 2D image into a sequence of patches
+        # each patch gets flattened and linearly projected to dimension D
+        # this is conceptually similar to the patch embedding in ViT, but implemented with pure reshaping ops
 
 class MixerLayer(nn.Module): # [b, np, D] -> [b, np, D]
     def __init__(self, np, D): 
@@ -101,9 +112,14 @@ class MixerLayer(nn.Module): # [b, np, D] -> [b, np, D]
     def forward(self, x): 
         h = self.mlp1(self.ln1(x.transpose(1,2))).transpose(1,2) + x # [b, np, D] after token mixing 
         return self.mlp2(self.ln2(h)) + h
+        # the transpose trick is the secret sauce of MLP-Mixer
+        # by transposing, we can apply MLPs across different dimensions
+        # first MLP mixes across patches (spatial mixing)
+        # second MLP mixes across feature dimensions (channel mixing)
+        # the skip connections (+ x and + h) are crucial for gradient flow in deep networks
 
 class Mixer(nn.Module): # [b, in_ch, in_sz, in_sz] -> [b, num_classes]
-    def __init__(self, in_ch=3, in_sz=32, D=256, num_classes=10, nlayers=8, patch_sz=4): # Added patch_sz param
+    def __init__(self, in_ch=3, in_sz=32, D=256, num_classes=10, nlayers=8, patch_sz=4): 
         super().__init__()
         self.in_ch = in_ch
         self.in_sz = in_sz
@@ -111,10 +127,10 @@ class Mixer(nn.Module): # [b, in_ch, in_sz, in_sz] -> [b, num_classes]
         self.patch_sz = patch_sz
         self.np = (in_sz//patch_sz)**2 # assumes in_sz is divisible by patch_sz
         self.D = D
-        self.nlayers = nlayers # Added missing nlayers attribute
+        self.nlayers = nlayers 
         
         self.e = Embeddings(in_ch, in_sz, D, patch_sz)
-        self.layers = nn.ModuleList([MixerLayer(self.np, D) for _ in range(nlayers)]) # Fixed layers construction
+        self.layers = nn.ModuleList([MixerLayer(self.np, D) for _ in range(nlayers)]) 
         self.pool = GlobalAvgPool()
         self.output_head = nn.Linear(D, num_classes)
     
@@ -125,6 +141,9 @@ class Mixer(nn.Module): # [b, in_ch, in_sz, in_sz] -> [b, num_classes]
         h = self.pool(h)
         logits = self.output_head(h)
         return logits
+        # the overall architecture is remarkably simple - patch embedding, mixer layers, pooling, classification
+        # no complex attention mechanisms or convolutions, just MLPs operating on different dimensions
+        # this simplicity is what makes MLP-Mixer so interesting as an architectural design
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train MLP Mixer on CIFAR-10")
@@ -144,7 +163,7 @@ if __name__ == "__main__":
 
     if args.wandb:
         if wandb is not None:
-            # initialize wandb run
+            # initialize wandb run, may need to set api key/account here 
             wandb.init(project="train_mlp_mixer", config=vars(args))
         else:
             print("wandb not installed, continuing without wandb logging")
@@ -155,12 +174,16 @@ if __name__ == "__main__":
         transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],
                              std=[0.2470, 0.2435, 0.2616])
     ])
+    # these normalization values are the channel-wise mean and std of CIFAR-10
+    # normalizing inputs to zero mean and unit variance helps training converge faster
 
     # load cifar10 datasets
     train_dataset = datasets.CIFAR10(root="./data", train=True, transform=transform, download=True)
     test_dataset = datasets.CIFAR10(root="./data", train=False, transform=transform, download=True)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+    # pin_memory=True gives a slight speed boost on GPU by making sure data is loaded into pinned memory
+    # shuffling the training data helps prevent the model from learning spurious patterns from data order
 
     model = Mixer().to(device)
     criterion = nn.CrossEntropyLoss()
@@ -175,12 +198,17 @@ if __name__ == "__main__":
         betas=(0.9, 0.9),
         weight_decay=args.lr  # Set weight decay equal to learning rate
     )
+    # using the same value for weight decay and learning rate is an interesting choice from the paper
+    # this creates a balance between optimization and regularization that scales with learning rate
 
-    # Custom learning rate scheduler for linear warmup and decay
+    # details like hypers and lr schedule are taken straight from the paper, not crucial to understand
     def get_lr(step):
         if step < warmup_steps:
-            return args.lr * step / warmup_steps  # Linear warmup
-        return args.lr * (1.0 - (step - warmup_steps) / (total_steps - warmup_steps))  # Linear decay
+            return args.lr * step / warmup_steps  
+        return args.lr * (1.0 - (step - warmup_steps) / (total_steps - warmup_steps))  
+        # this implements a linear warmup followed by linear decay
+        # warmup helps stabilize early training when gradients might be noisy
+        # decay helps fine-tune the model as training progresses
 
     # training loop
     global_step = 0
