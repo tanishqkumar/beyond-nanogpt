@@ -51,7 +51,7 @@ details often glossed over both in papers and production codebases.*
 - ✅ Diffusion Transformer (DiT) `architectures/train_dit.py`
 - ✅ RNN for language modeling `architectures/train_rnn.py` 
 - ✅ Residual Networks for Image Recognition (ResNet) `architectures/train_resnet.py`
-- [Coming Soon]: MoE, Decision Transformers, Mamba, LSTM, MLP-Mixer. 
+- [Coming Soon]: MLP-Mixer, MoE, Decision Transformers, LSTM, Mamba. 
 
 ### Key Attention Variants
 - ✅ Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` 
@@ -59,7 +59,7 @@ details often glossed over both in papers and production codebases.*
 - ✅ Grouped-Query Attention `attention-variants/gqa.ipynb`
 - ✅ Linear Attention `attention-variants/linear_attention.ipynb` 
 - ✅ Sparse Attention `attention-variants/sparse_attention.ipynb`
-- [Coming Soon]: Multi-Latent Attention, Cross-Attention, Ring Attention. 
+- [Coming Soon]: Cross-Attention, Multi-Latent Attention. 
 
 ### Key Transformer++ Optimizations
 - ✅ KV Caching `transformer++/KV_cache.ipynb` 
@@ -90,7 +90,7 @@ details often glossed over both in papers and production codebases.*
 - Minimal FSDP re-implementation (data and tensor parallelism)
 - Ring Attention
 - Flash Attention
-- 4-bit weight-only infernece quantization
+- 4-bit weight-only inference quantization
 
 ---
 
