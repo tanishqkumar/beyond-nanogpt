@@ -68,19 +68,29 @@ details often glossed over both in papers and production codebases.*
    - ✅ Producer-consumer asynchronous dataloading
    - ✅ Sequence packing
 - ✅ Byte-Pair Encoding `transformer++/bpe.ipynb`
-- [Coming Soon]: RoPE embeddings, continuous batching, FlashAttention.
+- [Coming Soon]: RoPE embeddings, continuous batching.
 
-### Key RL Techniques
-- [Coming Soon]:
-   - Classical RL:
-      - Deep Q-learning on Cartpole
-      - Neural Chess Engine (self-play, MCTS, policy-gradient)
-   - LLMs
-      - RLHF a base model with UltraFeedback 
-      - DPO a base model with UltraFeedback
-      - GRPO for reasoning: outcome reward on MATH
-      - GRPO for humor: RLAIF reward signal 
-      - GRPO for tool-use: constitutional AI 
+### Key RL Techniques [Coming Soon]
+- Classical RL:
+   - Cartpole with DQN
+   - Atari Breakout with PPO
+   - HalfCheetah‑v3 with SAC
+   - CarRacing‑v2 at >900 score (model-based RL)
+   - IMPALA (distributed RL)
+   - Neural Chess Engine (self-play, MCTS)
+- LLMs
+   - RLHF a base model with UltraFeedback 
+   - DPO a base model with UltraFeedback
+   - GRPO for reasoning: outcome reward on MATH
+   - GRPO for humor: RLAIF reward signal 
+   - GRPO for tool-use: constitutional AI
+
+### Key MLSys Techniques [Coming Soon]
+- Communication collectives (scatter, gather, ring/tree allreduce)
+- Minimal FSDP re-implementation (data and tensor parallelism)
+- Ring Attention
+- Flash Attention
+- 4-bit weight-only infernece quantization
 
 ---
 
