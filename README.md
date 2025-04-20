@@ -29,8 +29,8 @@ details often glossed over both in papers and production codebases.*
    The code is meant for you to read carefully, hack around with, then re-implement yourself from scratch and compare to. 
    You can just run `.py` files with vanilla Python in the following way. 
    ```bash
-   cd train-vanilla-transformer/
-   python train.py
+   cd fast-transformer-training/
+   python train_full.py
    ``` 
    or for instance 
    ```bash 
@@ -46,7 +46,7 @@ details often glossed over both in papers and production codebases.*
 ## Current Implementations and Roadmap
 
 ### Key Deep Learning architectures
-- ✅ Vanilla causal Transformer for language modeling (starting point) `train-vanilla-transformer/train.py`
+- ✅ Vanilla causal Transformer for language modeling (starting point) `fast-transformer-training/train_naive.py`
 - ✅ Vision Transformer (ViT) `architectures/train_vit.py`
 - ✅ Diffusion Transformer (DiT) `architectures/train_dit.py`
 - ✅ RNN for language modeling `architectures/train_rnn.py` 
@@ -63,14 +63,19 @@ details often glossed over both in papers and production codebases.*
 - ✅ Cross Attention `attention-variants/cross_attention.ipynb`
 - [Coming Soon]: Multi-Latent Attention. 
 
-### Key Transformer++ Optimizations
-- ✅ KV Caching `transformer++/KV_cache.ipynb` 
-- ✅ Speculative Decoding `transformer++/speculative_decoding.ipynb`
-- ✅ Optimized Dataloading `train-vanilla-transformer/` 
-   - ✅ Producer-consumer asynchronous dataloading
-   - ✅ Sequence packing
-- ✅ Byte-Pair Encoding `transformer++/bpe.ipynb`
-- [Coming Soon]: RoPE embeddings, continuous batching.
+### Transformer++ Training
+
+- ✅ Optimized Dataloading `fast-transformer-training/dataloaders` 
+   - ✅ Producer-consumer asynchronous dataloading 
+   - ✅ Sequence packing 
+- ✅ Byte-Pair Encoding `fast-transformer-training/bpe.ipynb`
+- [Coming Soon]: RoPE embeddings.
+
+### Transformer++ Inference
+
+- ✅ KV Caching `fast-transformer-inference/KV_cache.ipynb` 
+- ✅ Speculative Decoding `fast-transformer-inference/speculative_decoding.ipynb`
+- [Coming Soon]: Multi-token Prediction, Continuous Batching. 
 
 ### Key RL Techniques [Coming Soon]
 - Classical RL:
@@ -94,7 +99,7 @@ details often glossed over both in papers and production codebases.*
 - Ring Attention
 - Flash Attention
 - Paged Attention 
-- 4-bit weight-only inference quantization
+- 4-bit weight-only quantization
 
 ### Key Agents Techniques [Coming Soon]
 - Simulate a Society as in "Generative Simulcra"
@@ -104,7 +109,7 @@ details often glossed over both in papers and production codebases.*
 
 ### Key Diffusion Techniques [Coming Soon]
 - Image generation with a GAN
-- 32 × 32 DDPM on CIFAR‑10 with DDIM sampling
+- 32 ×32 DDPM on CIFAR‑10 with DDIM sampling
 - Classifier-free guidance
 - Implement a consistency model
    - Compare scaling laws to a standard diffusion transformer 
