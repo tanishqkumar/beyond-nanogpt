@@ -63,7 +63,7 @@ details often glossed over both in papers and production codebases.*
 - ✅ Cross Attention `attention-variants/cross_attention.ipynb`
 - [Coming Soon]: Multi-Latent Attention. 
 
-### Transformer++ Training
+### Fast Transformer Training
 
 - ✅ Optimized Dataloading `fast-transformer-training/dataloaders` 
    - ✅ Producer-consumer asynchronous dataloading 
@@ -71,7 +71,7 @@ details often glossed over both in papers and production codebases.*
 - ✅ Byte-Pair Encoding `fast-transformer-training/bpe.ipynb`
 - [Coming Soon]: RoPE embeddings.
 
-### Transformer++ Inference
+### Fast Transformer Inference
 
 - ✅ KV Caching `fast-transformer-inference/KV_cache.ipynb` 
 - ✅ Speculative Decoding `fast-transformer-inference/speculative_decoding.ipynb`
