@@ -84,6 +84,7 @@ details often glossed over both in papers and production codebases.*
    - GRPO for reasoning: outcome reward on MATH
    - GRPO for humor: RLAIF reward signal 
    - GRPO for tool-use: constitutional AI
+   - GRPO on theorem proving in Lean
 
 ### Key MLSys Techniques [Coming Soon]
 - Communication collectives (scatter, gather, ring/tree allreduce)
