@@ -18,8 +18,12 @@ How this dataloader works:
 - Manages memory efficiently with pinned memory for GPU transfer
 '''
 
+
 class DataLoader:
-    def __init__(self, tokenizer, path="/n/netscratch/gershman_lab/Lab/tkumar/datasets/dclm/global-shard_01_of_10/newest_data/tinystories.jsonl",
+    # download a jsonl file you want to train on and point to it here 
+    YOUR_DATA_PATH = "/todo.jsonl"
+    
+    def __init__(self, tokenizer, path=YOUR_DATA_PATH,
                  nworkers=16, batch_size=64, seqlen=512, prefetch=200, verbose=False):
         """
         Initialize the DataLoader with:

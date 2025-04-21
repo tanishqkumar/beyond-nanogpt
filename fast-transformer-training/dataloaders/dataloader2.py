@@ -27,10 +27,13 @@ import os
 import traceback
 
 class DataLoader:
+    # download a jsonl file you want to train on and point to it here 
+    YOUR_DATA_PATH = "/todo.jsonl"
+
     def __init__(
         self,
         tokenizer,
-        path="/n/netscratch/gershman_lab/Lab/tkumar/datasets/dclm/global-shard_01_of_10/newest_data/tinystories.jsonl",
+        path=YOUR_DATA_PATH,
         nworkers=48,
         batch_size=64,
         seqlen=512,

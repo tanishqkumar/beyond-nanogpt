@@ -6,9 +6,9 @@ import time
 import traceback
 from transformers import GPT2TokenizerFast
 
-from dataloader0 import DataLoader as DataLoader0
-from dataloader1 import DataLoader as DataLoader1
-from dataloader2 import DataLoader as DataLoader2
+from dataloaders.dataloader0 import DataLoader as DataLoader0
+from dataloaders.dataloader1 import DataLoader as DataLoader1
+from dataloaders.dataloader2 import DataLoader as DataLoader2
 
 def create_dummy_file(filename, n_lines):
     try:
@@ -31,17 +31,17 @@ def remove_dummy_file(filename):
     except Exception as e:
         print("Error removing dummy file '{}': {}".format(filename, e), flush=True)
 
-# Adapted for updated tokenization behavior in dataloader0.if __name__ == '__main__':
+# tweaked for dataloader0's tokenization
 if __name__ == '__main__':
     verbose_mode = '--verbose' in sys.argv
     if verbose_mode:
         print("Verbose mode enabled.")
     dummy_file = "dummy_data.jsonl"
-    n_lines = 200000  # Adjust this number as needed for profiling
+    n_lines = 200000  # change this to profile different sizes
 
     if verbose_mode:
         print(f"Creating dummy file '{dummy_file}' with {n_lines} lines.")
-    # Create the dummy file for testing the DataLoader pipeline.
+    # make a test file for the dataloaders
     create_dummy_file(dummy_file, n_lines)
     if verbose_mode:
         print("Dummy file created successfully.")
@@ -50,7 +50,7 @@ if __name__ == '__main__':
         if verbose_mode:
             print("Loading tokenizer from pretrained 'gpt2'.")
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-        # Ensure that the tokenizer used by dataloader0 has the expected EOS token.
+        # make sure dataloader0 has the right eos token
         tokenizer.add_special_tokens({'eos_token': '<|endoftext|>'})
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
@@ -63,12 +63,12 @@ if __name__ == '__main__':
         remove_dummy_file(dummy_file)
         sys.exit(1)
 
-    # Configuration parameters for profiling.
+    # settings for profiling
     batch_size = 64
-    seq_len = 512   # Packed sequence length used for each batch.
+    seq_len = 512   # how long each packed sequence should be
     num_workers = 48
     prefetch_batches = 200
-    max_batches_to_test = 500  # Run for 1000 batches per implementation.
+    max_batches_to_test = 500  # how many batches to run per implementation
     if verbose_mode:
         print("Profiling configuration:")
         print(f"  Batch size: {batch_size}")
@@ -123,12 +123,12 @@ if __name__ == '__main__':
 
     if verbose_mode:
         print("Running profiling for all DataLoader implementations...")
-    # Run profiling for all DataLoader implementations.
+    # test all the dataloaders
     result0 = run_profiling(DataLoader0, "dataloader0")
     result1 = run_profiling(DataLoader1, "dataloader1") 
     result2 = run_profiling(DataLoader2, "dataloader2")
 
-    # Print only the final throughput summary for the implementations.
+    # print the final stats
     print("Profiling Summary:")
     for res in (result0, result1, result2):
         print(f"{res['label']} - Batches: {res['batches']}, Tokens: {res['tokens']}, Total Time: {res['total_time_sec']:.2f} sec, "
