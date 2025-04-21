@@ -82,11 +82,11 @@ details often glossed over both in papers and production codebases.*
    - Cartpole:
       - DQN
       - REINFORCE
+      - PPO 
    - Pendulum v1
       - A2C
       - A3C
    - HalfCheetah‑v3 with SAC
-   - Atari Breakout with PPO
    - CarRacing‑v2 with model-based RL
    - IMPALA (distributed RL)
    - Neural Chess Engine (self-play, MCTS)
