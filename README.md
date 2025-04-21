@@ -79,10 +79,15 @@ details often glossed over both in papers and production codebases.*
 
 ### Key RL Techniques [Coming Soon]
 - Classical RL:
-   - Cartpole with DQN
-   - Atari Breakout with PPO
+   - Cartpole:
+      - DQN
+      - REINFORCE
+   - Pendulum v1
+      - A2C
+      - A3C
    - HalfCheetah‑v3 with SAC
-   - CarRacing‑v2 at >900 score (model-based RL)
+   - Atari Breakout with PPO
+   - CarRacing‑v2 with model-based RL
    - IMPALA (distributed RL)
    - Neural Chess Engine (self-play, MCTS)
 - LLMs
@@ -109,12 +114,12 @@ details often glossed over both in papers and production codebases.*
 
 ### Key Diffusion Techniques [Coming Soon]
 - Image generation with a GAN
-- 32 ×32 DDPM on CIFAR‑10 with DDIM sampling
-- Classifier-free guidance
-- Implement a consistency model
-   - Compare scaling laws to a standard diffusion transformer 
-- Score‑distillation cross‑modal generation
-- Conditional text generation with a diffusion-language model in latent space
+- Train a simple U‑Net DDPM on CIFAR‑10
+- Noise schedules and score matching
+- Implement DDIM for faster sampling
+- Add classifier-free guidance for conditional control 
+- Distill the model into a consistency model
+- Train a diffusion-language model in continuous latent space
    - Implement discrete diffusion for language modeling 
 
 ---
