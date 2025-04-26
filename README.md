@@ -52,7 +52,10 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [x] RNN for language modeling `architectures/train_rnn.py` 
 - [x] Residual Networks (ResNet) `architectures/train_resnet.py`
 - [x] MLP-Mixer `architectures/train_mlp_mixer.py`
-- [ ] MoE, Decision Transformers, LSTM, Mamba. 
+- [ ] MoE
+- [ ] Decision Transformers
+- [ ] LSTM
+- [ ] Mamba
 
 ### Key Attention Variants
 - [x] Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` 
