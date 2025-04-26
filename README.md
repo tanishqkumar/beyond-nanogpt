@@ -53,7 +53,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [x] Residual Networks (ResNet) `architectures/train_resnet.py`
 - [x] MLP-Mixer `architectures/train_mlp_mixer.py`
 - [ ] MoE
-- [ ] Decision Transformers
+- [ ] Decision Transformer
 - [ ] LSTM
 - [ ] Mamba
 
