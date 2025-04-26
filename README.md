@@ -12,6 +12,8 @@ self-contained and hand-written PyTorch to help you upskill your technical funda
 implemented by-hand, the code comments explain the especially subtle
 details often glossed over both in papers and production codebases.*
 
+Checked boxes denote currently implemented and ready to be run. Others are either coming soon or in progress.
+
 ## Quickstart
 1. **Clone the Repo:**
    ```bash
@@ -44,80 +46,81 @@ details often glossed over both in papers and production codebases.*
 ## Current Implementations and Roadmap
 
 ### Key Deep Learning architectures
-- ✅ Vanilla causal Transformer for language modeling (starting point) `fast-transformer-training/train_naive.py`
-- ✅ Vision Transformer (ViT) `architectures/train_vit.py`
-- ✅ Diffusion Transformer (DiT) `architectures/train_dit.py`
-- ✅ RNN for language modeling `architectures/train_rnn.py` 
-- ✅ Residual Networks (ResNet) `architectures/train_resnet.py`
-- ✅ MLP-Mixer `architectures/train_mlp_mixer.py`
-- [Coming Soon]: MoE, Decision Transformers, LSTM, Mamba. 
+- [x] Vanilla causal Transformer for language modeling (starting point) `fast-transformer-training/train_naive.py`
+- [x] Vision Transformer (ViT) `architectures/train_vit.py`
+- [x] Diffusion Transformer (DiT) `architectures/train_dit.py`
+- [x] RNN for language modeling `architectures/train_rnn.py` 
+- [x] Residual Networks (ResNet) `architectures/train_resnet.py`
+- [x] MLP-Mixer `architectures/train_mlp_mixer.py`
+- [ ] MoE, Decision Transformers, LSTM, Mamba. 
 
 ### Key Attention Variants
-- ✅ Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` 
-- ✅ Multi-head Self-Attention `attention-variants/mhsa.ipynb` 
-- ✅ Grouped-Query Attention `attention-variants/gqa.ipynb`
-- ✅ Linear Attention `attention-variants/linear_attention.ipynb` 
-- ✅ Sparse Attention `attention-variants/sparse_attention.ipynb`
-- ✅ Cross Attention `attention-variants/cross_attention.ipynb`
-- [Coming Soon]: Multi-Latent Attention. 
+- [x] Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` 
+- [x] Multi-head Self-Attention `attention-variants/mhsa.ipynb` 
+- [x] Grouped-Query Attention `attention-variants/gqa.ipynb`
+- [x] Linear Attention `attention-variants/linear_attention.ipynb` 
+- [x] Sparse Attention `attention-variants/sparse_attention.ipynb`
+- [x] Cross Attention `attention-variants/cross_attention.ipynb`
+- [ ] Multi-Latent Attention. 
 
 ### Fast Transformer Training
 
-- ✅ Optimized Dataloading `fast-transformer-training/dataloaders` 
-   - ✅ Producer-consumer asynchronous dataloading 
-   - ✅ Sequence packing 
-- ✅ Byte-Pair Encoding `fast-transformer-training/bpe.ipynb`
-- [Coming Soon]: RoPE embeddings.
+- [x] Optimized Dataloading `fast-transformer-training/dataloaders` 
+   - [x] Producer-consumer asynchronous dataloading 
+   - [x] Sequence packing 
+- [x] Byte-Pair Encoding `fast-transformer-training/bpe.ipynb`
+- [ ] RoPE embeddings.
 
 ### Fast Transformer Inference
 
-- ✅ KV Caching `fast-transformer-inference/KV_cache.ipynb` 
-- ✅ Speculative Decoding `fast-transformer-inference/speculative_decoding.ipynb`
-- [Coming Soon]: Multi-token Prediction, Continuous Batching. 
+- [x] KV Caching `fast-transformer-inference/KV_cache.ipynb` 
+- [x] Speculative Decoding `fast-transformer-inference/speculative_decoding.ipynb`
+- [ ] Multi-token Prediction
+- [ ] Continuous Batching 
 
-### Key RL Techniques [Coming Soon]
+### Key RL Techniques 
 - Classical RL:
-   - Cartpole:
-      - DQN
-      - REINFORCE
-      - PPO 
+   - Cartpole: `rl/cartpole`
+      - [x] DQN `train_dqn.py`
+      - [ ] REINFORCE
+      - [ ] PPO 
    - Pendulum v1
-      - A2C
-      - A3C
-   - HalfCheetah‑v3 with SAC
-   - CarRacing‑v2 with model-based RL
-   - IMPALA (distributed RL)
-   - Neural Chess Engine (self-play, MCTS)
+      - [ ] A2C
+      - [ ] A3C
+   - [ ] HalfCheetah‑v3 with SAC
+   - [ ] CarRacing‑v2 with model-based RL
+   - [ ] IMPALA (distributed RL)
+   - [ ] Neural Chess Engine (self-play, MCTS)
 - LLMs
-   - RLHF a base model with UltraFeedback 
-   - DPO a base model with UltraFeedback
-   - GRPO for reasoning: outcome reward on MATH
-   - GRPO for humor: RLAIF reward signal 
-   - GRPO for tool-use: constitutional AI
-   - GRPO on theorem proving in Lean
+   - [ ] RLHF a base model with UltraFeedback 
+   - [ ] DPO a base model with UltraFeedback
+   - [ ] GRPO for reasoning: outcome reward on MATH
+   - [ ] GRPO for humor: RLAIF reward signal 
+   - [ ] GRPO for tool-use: constitutional AI
+   - [ ] GRPO on theorem proving in Lean
 
-### Key MLSys Techniques [Coming Soon]
-- Communication collectives (scatter, gather, ring/tree allreduce)
-- Minimal FSDP re-implementation (data and tensor parallelism)
-- Ring Attention
-- Flash Attention
-- Paged Attention 
-- 4-bit weight-only quantization
+### Key MLSys Techniques 
+- [ ] Communication collectives (scatter, gather, ring/tree allreduce)
+- [ ] Minimal FSDP re-implementation (data and tensor parallelism)
+- [ ] Ring Attention
+- [ ] Flash Attention
+- [ ] Paged Attention 
+- [ ] 4-bit weight-only quantization
 
-### Key Agents Techniques [Coming Soon]
-- Simulate a Society as in "Generative Simulcra"
-- Implement ReAct + Function Calling on a base model so it can use tools to respond to queries
-- Make an LLM agent that takes (instructions, GitHub credentials) and makes a simple PR in the repo
-- Make an LLM agent that can add items to cart and screenshot the total on WebArena
+### Key Agents Techniques 
+- [ ] Simulate a Society as in "Generative Simulcra"
+- [ ] Implement ReAct + Function Calling on a base model so it can use tools to respond to queries
+- [ ] Make an LLM agent that takes (instructions, GitHub credentials) and makes a simple PR in the repo
+- [ ] Make an LLM agent that can add items to cart and screenshot the total on WebArena
 
-### Key Diffusion Techniques [Coming Soon]
-- Image generation with a GAN
-- Train a simple U‑Net DDPM on CIFAR‑10
-- Noise schedules and score matching
-- Implement DDIM for faster sampling
-- Add classifier-free guidance for conditional control 
-- Distill the model into a consistency model
-- Train a diffusion-language model in continuous latent space
+### Key Diffusion Techniques 
+- [ ] Image generation with a GAN
+- [ ] Train a simple U‑Net DDPM on CIFAR‑10
+- [ ] Noise schedules and score matching
+- [ ] Implement DDIM for faster sampling
+- [ ] Add classifier-free guidance for conditional control 
+- [ ] Distill the model into a consistency model
+- [ ] Train a diffusion-language model in continuous latent space
    - Implement discrete diffusion for language modeling 
 
 ---
