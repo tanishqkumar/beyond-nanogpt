@@ -14,6 +14,7 @@ Environment: CartPole-v1
   3. Episode length reaches 500 timesteps
 - Actions: 0 (push cart left), 1 (push cart right)
 
+Setup: 
 
 Q(s) returns q-values for all actions, ie. 2 outputs for us 
 Loss = (  Q(s,a) - [R(s,a) + gamma * max_a(Q(s', a))]  )^2
@@ -34,6 +35,8 @@ import argparse
 
 env = gym.make('CartPole-v1')
 
+# our action policy is just an mlp since this is a really simple task, obviously a policy 
+# goes from states -> actions where we choose the action by taking argmax over actions or sampling 
 class PolicyNet(nn.Module): 
     def __init__(self, nstates=4, nactions=2, hidden_dim=128, act=nn.GELU()): 
         super().__init__()
@@ -82,11 +85,11 @@ class ReplayBuffer:
         return
 
     def get_batch(self, bs=64): 
-        if self.size < bs:
+        if self.size < bs: 
             bs = self.size
         
-        indices = torch.randint(0, self.size, (bs,)) # randomly sample from our buffer 
-        states = self.states[indices]
+        indices = torch.randint(0, self.size, (bs,)) # randomly sample from our buffer, called "experience replay"
+        states = self.states[indices] # which I find to be a hilariously unecessarily complicated name 
         actions = self.actions[indices]
         rewards = self.rewards[indices]
         next_states = self.next_states[indices]
@@ -95,13 +98,11 @@ class ReplayBuffer:
         return (states, actions, rewards, next_states, dones)
 
 
-def loss_fn(sartd, policy_net, target_net, gamma=0.9): # [b, 5] tensor
+def loss_fn(sartd, policy_net, target_net, gamma=0.9): 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    # states = sartd[:, 0] is [b, state_dim]
-    # then logits = policy(states) is [b, nactions]
     states, actions, rewards, next_states, dones = sartd # unpack 
     
-    # Move to device only for forward pass
+    # move to device only for forward pass
     states = states.to(device)
     next_states = next_states.to(device)
     actions = actions.to(device) # [batch]
@@ -117,14 +118,14 @@ def loss_fn(sartd, policy_net, target_net, gamma=0.9): # [b, 5] tensor
         next_values = target_net(next_states) # [b, nactions]
 
     # this is the key math: the update rule for deep q networks 
-    # we just want the Bellman equations satisfied, so we penalize the deviation from them 
+    # we just want the Bellman equations satisfied, so we penalize 
+    # the deviation from them w/ mse, and this will converge to the globally right q-vals
+    # (that's not obvious and requires proof, but its true and you'll see the proof 
+    # if you take an RL course)
     targets = rewards + gamma * (1 - dones) * torch.max(next_values, dim=1)[0] 
 
-    # this line is subtle, one may be tempted to do (I was)
-    # the more naive logits[:, actions] or logits[:, actions.long()]
-    # but BOTH will FAIL. 
-    pred_qvals = logits.gather(1, actions.long().unsqueeze(1)).squeeze(1)
-    
+    batch_idx  = torch.arange(actions.shape[0], device=actions.device)
+    pred_qvals = logits[batch_idx, actions.long()]   # shape (batch,)
     
     return ((pred_qvals - targets)**2).mean()
 
@@ -147,20 +148,23 @@ def train(epochs=4000, max_buffer_sz=10000, lr=0.0001, epsilon_final=0.01,
 
     ep_len_moving_avg = 0 
     for step in tqdm(range(epochs)): 
+        # we make separate buffers for each because states/rest have different shapes
+        # so you can't just allocate like a [batch_sz, 5] tensor as if they're all scalars 
         rollout_batch_states = torch.zeros(rollout_batch_sz, nstates)
         rollout_batch_actions = torch.zeros(rollout_batch_sz)
         rollout_batch_rewards = torch.zeros(rollout_batch_sz)
         rollout_batch_next_states = torch.zeros(rollout_batch_sz, nstates)
         rollout_batch_done = torch.zeros(rollout_batch_sz)
         
-        ttl = 0
-        for _ in range(rollout_batch_sz):
+        ttl = 0 # ttl is total experiences (summed over all rollouts in this step)
+        # so far in this step
+        for _ in range(rollout_batch_sz): # number of rollouts per step 
             done = False
             state, _ = env.reset()
             state = torch.tensor(state)
             
             i = 0 
-            while i < max_rollout_len and not done and ttl < rollout_batch_sz:
+            while i < max_rollout_len and not done and ttl < rollout_batch_sz: # one rollout
                 logits = policy_net(state.to(device)) 
                 if torch.rand(1).item() > epsilon: 
                     next_action = torch.argmax(logits).item()
@@ -183,12 +187,19 @@ def train(epochs=4000, max_buffer_sz=10000, lr=0.0001, epsilon_final=0.01,
                 if done:
                     ep_len_moving_avg = 0.9 * ep_len_moving_avg + 0.1 * i
                     i = 0
-
+        
+        # push all newly collected experiences into our buffer
+        # and .push() handles overflow
         buffer.push((rollout_batch_states, rollout_batch_actions, rollout_batch_rewards, 
                 rollout_batch_next_states, rollout_batch_done))
 
+
         for i in range(num_updates_per_step): 
             batch = buffer.get_batch(train_batch_sz)
+            # the critical thing to notice in .get_batch() is that we sample randomly from past experiences, 
+            # which means we may be "learning from experiences far in the past" and in the RL 
+            # the fact we're getting gradients from experiences our immediately current policy didn't collect
+            # means this is "off-policy" learning 
             loss = loss_fn(batch, policy_net, target_net)
             loss.backward()
             opt.step()
@@ -197,11 +208,13 @@ def train(epochs=4000, max_buffer_sz=10000, lr=0.0001, epsilon_final=0.01,
         epsilon = max(epsilon_final, epsilon - epsilon_decay)
 
         if step % 200 == 0: 
-            print(f'[{step}/{epochs}]: Loss {loss.item()}, Reward (moving avg ep len): {round(ep_len_moving_avg, 3)}')
+            # Reward = (moving avg episode len) because we want to keep the pole upright for as long as possible!
+            print(f'[{step}/{epochs}]: Loss {loss.item()}, Reward: {round(ep_len_moving_avg, 3)}')
 
         if step % reset_target == 0: 
             target_net.load_state_dict(policy_net.state_dict())
 
+# same structure hypers/args as most files in this project 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train DQN on CartPole')
     parser.add_argument('--epochs', type=int, default=2000, help='Number of training epochs')
