@@ -52,9 +52,9 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [x] RNN for language modeling `architectures/train_rnn.py` 
 - [x] Residual Networks (ResNet) `architectures/train_resnet.py`
 - [x] MLP-Mixer `architectures/train_mlp_mixer.py`
+- [ ] LSTM
 - [ ] MoE
 - [ ] Decision Transformer
-- [ ] LSTM
 - [ ] Mamba
 
 ### Key Attention Variants
@@ -64,7 +64,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [x] Linear Attention `attention-variants/linear_attention.ipynb` 
 - [x] Sparse Attention `attention-variants/sparse_attention.ipynb`
 - [x] Cross Attention `attention-variants/cross_attention.ipynb`
-- [ ] Multi-Latent Attention. 
+- [ ] Multi-Latent Attention
 
 ### Fast Transformer Training
 
@@ -72,7 +72,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
    - [x] Producer-consumer asynchronous dataloading 
    - [x] Sequence packing 
 - [x] Byte-Pair Encoding `fast-transformer-training/bpe.ipynb`
-- [ ] RoPE embeddings.
+- [ ] RoPE embeddings
 
 ### Fast Transformer Inference
 
@@ -85,7 +85,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - Classical RL:
    - Cartpole: `rl/cartpole`
       - [x] DQN `train_dqn.py`
-      - [ ] REINFORCE
+      - [x] REINFORCE `train_reinforce.py`
       - [ ] PPO 
    - Pendulum v1
       - [ ] A2C
@@ -98,9 +98,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
    - [ ] RLHF a base model with UltraFeedback 
    - [ ] DPO a base model with UltraFeedback
    - [ ] GRPO for reasoning: outcome reward on MATH
-   - [ ] GRPO for humor: RLAIF reward signal 
-   - [ ] GRPO for tool-use: constitutional AI
-   - [ ] GRPO on theorem proving in Lean
+   - [ ] Distributed RLAIF for multi-tool use
 
 ### Key MLSys Techniques 
 - [ ] Communication collectives (scatter, gather, ring/tree allreduce)
