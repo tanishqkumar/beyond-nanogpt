@@ -116,7 +116,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [ ] Add classifier-free guidance for conditional control 
 - [ ] Distill the model into a consistency model
 - [ ] Train a diffusion-language model in continuous latent space
-   - Implement discrete diffusion for language modeling 
+- [ ] Implement discrete diffusion for language modeling 
 
 ### Key Agents Techniques 
 - [ ] Simulate a Society as in "Generative Simulcra"
