@@ -1,19 +1,28 @@
 '''
-(https://arxiv.org/pdf/1707.06347) Proximal Policy Optimization. 
+Proximal Policy Optimization. 
+(https://arxiv.org/pdf/1707.06347) 
 
-A key modern policy gradient optimization algorithm that is basically REINFORCE++ but is 
-important enough that it's worth knowing deeply.  
+A key modern policy gradient optimization algorithm that is basically PPO++ but is 
+important enough that it's worth knowing deeply. Basically all the changes are 
+in the loss computation `loss_fn` and things otherwise stay the same. 
 
-Key differences from REINFORCE:  
+Key differences from PPO:  
     1) (Critical) Stabilize reward estimation by subtracting the "average value of a state" so that 
         now our actions are not weighted by return/reward, but *advantage* which is an estimate of how much 
         BETTER an action a in state s is than the average action, eg. R(s,a) - V(s) where V is now a *new* neural network 
         called a *value network*. We use this to estimate the advantage using an algorithm called Generalized Advantage Estimation. 
-        This is the biggest difference from REINFORCE, where either you normalize or subtract a constant baseline. 
+        This is the biggest difference from PPO, where either you normalize or subtract a constant baseline. 
     2) We use one batch for multiple steps and a buffer-like mechanism to store recent rollouts. 
         To make this close to on-policy, clip our step size each time so we don't move too far from data-generating policy. 
     3) We add an entropy regularization term in loss to encourage exploration. 
 
+The key implementational difference in training is just collecting more data on each experience. Instead of 
+(reward, logprob) being an "experience" in a rollout, 
+now we want (curr_state, action/logprobs, next_state, rewards, done, value[curr_state], value[next_state])
+since we'll need all of these to compute the new loss. So we modify our training code to collect/store these new pieces of information 
+in addition to using them in the new loss_fn. Otherwise things are conceptually the same. This new loss was motivated 
+by consideration to do with the loss/optimization landscape and a desire for sample efficiency, see the paper for 
+full details -- it's worth reading!
 '''
 
 
@@ -37,31 +46,42 @@ class PolicyNet(nn.Module): # states -> action probs
     def forward(self, x): # x is [nstates], want [nactions] as logits
         return self.w2(self.act(self.w1(x)))
 
-def loss_fn(rewards, logprobs, mask, gamma=0.99, max_rollout_len=50): # first two are [b, ms]
-    # transform r into returns R_t with exponential discounting 
-    idx = torch.arange(max_rollout_len, device=rewards.device)
-    power_mat = idx[:,None] - idx[None,:]     # (k,t)=k−t
-    G = torch.tril(gamma**power_mat)  # already lower‐triangular
-    returns = rewards @ G # [b, msl] @ [msl, msl] -> [b, msl]
+class ValueNet(nn.Module): # states -> state values 
+    def __init__(self, nstates=4, hidden_dim=128, act=nn.GELU()):
+        super().__init__()
+        self.w1 = nn.Linear(nstates, hidden_dim)
+        self.w2 = nn.Linear(hidden_dim, nstates)
+        self.act = act
 
-    # interesting note: if you don't normalize returns, loss INCREASES
-    # even though the policy is IMPROVING (higher reward)
-    # because avg ep length increases and loss_t is increasing in ep len 
-    masked_returns = mask * returns
-    mean_returns = masked_returns.sum() / mask.sum()
-    # var computed old fashion way, ie. Var[X] = E[X^2] - [EX]^2
-    # where EX = 0 so Var[X] = E[X^2] where X is centered
-    centered_masked_returns = masked_returns - mean_returns
-    var_returns = (centered_masked_returns ** 2).sum() / mask.sum()
-    std_returns = torch.sqrt(var_returns)
-    fully_normalized_returns = mean_returns / (std_returns + 1e-8)
+    def forward(self, x): # x is [nstates], want [nactions] as logits
+        return self.w2(self.act(self.w1(x)))
 
-    # return -Reward = -E[R_t * logprob] as loss 
-    loss_t = -mask * fully_normalized_returns * logprobs
-    return loss_t.sum() / mask.sum()
+# PPO loss computation and what it takes in is key difference from REINFORCE
+def loss_fn(batch_rewards, batch_logprobs, batch_dones, batch_states, batch_next_states, 
+            batch_values, batch_next_values, mask, gamma=0.99, lamb=0.95, clip=0.2, end=0.01, max_rollout_len=50): # all are are [b, ms]
+
+    # compute td error 
+    deltas = batch_rewards + gamma * batch_next_values * (1.0 - batch_dones) - batch_values # deltas is [b, T]
+    # compute advantage 
+    # advantage is a cumprod from deltas? or loop 
+
+    # A_t = sum_{k=0}^T [(lambda * gamma)**k * deltas[t+k]]
+    # A = (lambda * gamma * deltas).cumprod(dim=1)
+    
+    
+    
+    # compute entropy term using old/new logprobs, generate if needed 
+    # compute value_net loss 
+
+    # compute clipped obj 
+
+    # return full obj of clipped + value 
+
+    pass 
 
 def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, verbose=False):
     policy = PolicyNet().to(device)
+    value_net = ValueNet().to(device)
     opt = torch.optim.AdamW(policy.parameters(), lr=lr)
     opt.zero_grad()
     done = False 
@@ -74,7 +94,7 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, ve
     
     for step in tqdm(range(nsteps)):
         # on-policy, ie. the batch we'll step on a few times in training step has JUST been generated by our current policy 
-        batch_rewards, batch_logprobs = [], []  # both will be [b, sm]
+        batch_rewards, batch_logprobs, batch_states, batch_next_states, batch_dones = [], [], [], [], []  # both will be [b, sm]
         true_lens = torch.zeros(b)  # entry i is true len of batch element i, use this with arange to mask mask of size [b, s]
         
         if verbose and step % 5 == 0:
@@ -83,9 +103,14 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, ve
         for batch_idx in range(b):  # in contrast to dqn which stores a buffer where we may be learning from 
             i = 0 
             rollout_rewards, rollout_logprobs = torch.zeros(max_rollout_len), torch.zeros(max_rollout_len)
+            # need curr and next states, dones, and values for both 
+            rollout_states, rollout_next_states = torch.zeros(max_rollout_len), torch.zeros(max_rollout_len)
+            rollout_dones = torch.zeros(max_rollout_len, dtype=torch.bool).to(device)
+
             done = False 
             state, _ = env.reset()
             state = torch.tensor(state).to(device)
+            
             # generate a single rollout
             while not done and i < max_rollout_len:
                 dist = F.softmax(policy(state), dim=-1)
@@ -94,10 +119,16 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, ve
 
                 next_state, r, terminated, truncated, _ = env.step(next_action)
                 done = terminated or truncated
+                next_state = torch.tensor(next_state).to(device)
+                
+                # update info for this experience 
                 rollout_rewards[i] = r
                 rollout_logprobs[i] = logprobs[next_action]
+                rollout_dones[i] = done 
+                rollout_states[i] = state 
+                rollout_next_states[i] = next_state 
 
-                state = torch.tensor(next_state).to(device)
+                state = next_state
                 i += 1
                 
                 if done or i == max_rollout_len:
@@ -108,19 +139,27 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, ve
             # add tensor to list to stack later 
             batch_rewards.append(rollout_rewards)
             batch_logprobs.append(rollout_logprobs)
+            batch_dones.append(rollout_dones)
+            batch_states.append(rollout_states)
+            batch_next_states.append(rollout_next_states)
 
-        # stack logprobs and r into two tensors, they are list of lists overall [b, mrl]
+        # list of experiences to feed into loss computation for this 
         batch_rewards = torch.stack(batch_rewards).to(device)
         batch_logprobs = torch.stack(batch_logprobs).to(device)
+        batch_dones = torch.stack(batch_dones).to(device)
+        batch_states = torch.stack(batch_states).to(device)
+        batch_next_states = torch.stack(batch_next_states).to(device)
+        batch_values = value_net(batch_states)
+        batch_next_values = value_net(batch_next_states)
 
-        # rollout.shape, true_lens.shape # [2, b, s]
         mask = (torch.arange(max_rollout_len, device=device)[None]
                 < true_lens[:, None].to(device)).float()  # [b, s], this is some cute tensor golf you should make sure to understand
 
         if verbose and step % 5 == 0:
             print(f"Computing loss for batch {step}...")
-            
-        loss = loss_fn(batch_rewards, batch_logprobs, mask, gamma=gamma, max_rollout_len=max_rollout_len)
+
+        data = (batch_rewards, batch_logprobs, batch_dones, batch_states, batch_next_states, batch_values, batch_next_values, mask)
+        loss = loss_fn(*data, gamma=gamma, max_rollout_len=max_rollout_len)
         loss.backward()    
         opt.step()
         opt.zero_grad()
@@ -132,7 +171,7 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, ve
             print(f"[{step:4d}/{nsteps:4d}]  ||   Loss = {loss.item():.4f}  ||  Reward(Avg Ep Len) = {avg_length:.1f}  ||  Min/Max Len = {min_length:.1f}/{max_length:.1f}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Train REINFORCE on CartPole')
+    parser = argparse.ArgumentParser(description='Train PPO on CartPole')
     parser.add_argument('--nsteps', type=int, default=500, help='Number of training steps')
     parser.add_argument('--batch-size', type=int, default=256, help='Batch size')
     parser.add_argument('--max-rollout-len', type=int, default=200, help='Maximum rollout length')
@@ -146,7 +185,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.verbose:
-        print("Starting REINFORCE training on CartPole-v1 environment")
+        print("Starting PPO training on CartPole-v1 environment")
         print(f"Arguments: {args}")
     
     train(
