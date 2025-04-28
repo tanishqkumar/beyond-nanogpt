@@ -90,8 +90,8 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
    - Pendulum v1
       - [ ] A2C
       - [ ] A3C
-   - [ ] HalfCheetah‑v3 with SAC
-   - [ ] CarRacing‑v2 with model-based RL
+   - [ ] HalfCheetah‑v3 with SAC (off-policy)
+   - [ ] CarRacing‑v2 with MPC (model-based RL)
    - [ ] IMPALA (distributed RL)
    - [ ] Neural Chess Engine (self-play, MCTS)
 - LLMs
