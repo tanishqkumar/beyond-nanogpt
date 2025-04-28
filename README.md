@@ -28,14 +28,14 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 3. **Start learning!**
    The code is meant for you to read carefully, hack around with, then re-implement yourself from scratch and compare to. 
    You can just run `.py` files with vanilla Python in the following way. 
-   ```bash
-   cd fast-transformer-training/
-   python train_full.py
-   ``` 
-   or for instance 
    ```bash 
    cd architectures/
    python train_dit.py
+   ```
+   or for instance 
+   ```bash 
+   cd rl/cartpole/
+   python train_reinforce.py --verbose 
    ```
    Everything is written to be run on a single GPU. The code is self-documenting with comments for intuition and elaborating 
    on subtleties I found tricky to implement. 
@@ -66,7 +66,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [x] Cross Attention `attention-variants/cross_attention.ipynb`
 - [ ] Multi-Latent Attention
 
-### Fast Transformer Training
+### Key Transformer Training Techniques
 
 - [x] Optimized Dataloading `fast-transformer-training/dataloaders` 
    - [x] Producer-consumer asynchronous dataloading 
@@ -74,7 +74,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [x] Byte-Pair Encoding `fast-transformer-training/bpe.ipynb`
 - [ ] RoPE embeddings
 
-### Fast Transformer Inference
+### Key Transformer Inference Techniques
 
 - [x] KV Caching `fast-transformer-inference/KV_cache.ipynb` 
 - [x] Speculative Decoding `fast-transformer-inference/speculative_decoding.ipynb`
@@ -108,12 +108,6 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [ ] Paged Attention 
 - [ ] 4-bit weight-only quantization
 
-### Key Agents Techniques 
-- [ ] Simulate a Society as in "Generative Simulcra"
-- [ ] Implement ReAct + Function Calling on a base model so it can use tools to respond to queries
-- [ ] Make an LLM agent that takes (instructions, GitHub credentials) and makes a simple PR in the repo
-- [ ] Make an LLM agent that can add items to cart and screenshot the total on WebArena
-
 ### Key Diffusion Techniques 
 - [ ] Image generation with a GAN
 - [ ] Train a simple U‑Net DDPM on CIFAR‑10
@@ -123,6 +117,19 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [ ] Distill the model into a consistency model
 - [ ] Train a diffusion-language model in continuous latent space
    - Implement discrete diffusion for language modeling 
+
+### Key Agents Techniques 
+- [ ] Simulate a Society as in "Generative Simulcra"
+- [ ] Implement ReAct + Function Calling on a base model so it can use tools to respond to queries
+- [ ] Make an LLM agent that takes (instructions, GitHub credentials) and makes a simple PR in the repo
+- [ ] Make an LLM agent that can add items to cart and screenshot the total on WebArena
+
+### Key Multimodality Techniques 
+- [ ] CLIP-style constrastive vision-language pretraining
+- [ ] Flamingo-style interleaved images with text pretraining
+- [ ] Pali-X: Use masking to bridge modalities 
+- [ ] ImageBind-style alignment of modalities at token-level 
+- [ ] SeamlessM4T-style audio unit-tokens pretraining
 
 ---
 
