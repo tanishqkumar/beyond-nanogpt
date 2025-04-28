@@ -86,7 +86,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
    - Cartpole: `rl/cartpole`
       - [x] DQN `train_dqn.py`
       - [x] REINFORCE `train_reinforce.py`
-      - [ ] PPO 
+      - [x] PPO 
    - Pendulum v1
       - [ ] A2C
       - [ ] A3C
