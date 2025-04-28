@@ -95,6 +95,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
    - [ ] IMPALA (distributed RL)
    - [ ] Neural Chess Engine (self-play, MCTS)
 - LLMs
+   - [ ] RL finetune a small LM to do arithmetic against a calculator program 
    - [ ] RLHF a base model with UltraFeedback 
    - [ ] DPO a base model with UltraFeedback
    - [ ] GRPO for reasoning: outcome reward on MATH
