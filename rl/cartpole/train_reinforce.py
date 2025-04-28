@@ -111,6 +111,7 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, ve
                     if verbose and batch_idx % 10 == 0 and step % 5 == 0:
                         print(f"  Rollout {batch_idx}: length {i}, final reward {r}, terminated: {terminated}")
 
+            # add tensor to list to stack later 
             batch_rewards.append(rollout_rewards)
             batch_logprobs.append(rollout_logprobs)
 
