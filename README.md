@@ -45,7 +45,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 
 ## Current Implementations and Roadmap
 
-### Key Deep Learning architectures
+### Key Architectures
 - [x] Vanilla causal Transformer for language modeling (starting point) `fast-transformer-training/train_naive.py`
 - [x] Vision Transformer (ViT) `architectures/train_vit.py`
 - [x] Diffusion Transformer (DiT) `architectures/train_dit.py`
@@ -86,7 +86,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
    - Cartpole: `rl/cartpole`
       - [x] DQN `train_dqn.py`
       - [x] REINFORCE `train_reinforce.py`
-      - [x] PPO 
+      - [x] PPO `train_ppo.py`
    - Pendulum v1
       - [ ] A2C
       - [ ] A3C
