@@ -32,58 +32,84 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm 
 import argparse
+import wandb
 
 env = gym.make('CartPole-v1')
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class PolicyNet(nn.Module): # states -> action probs 
-    def __init__(self, nstates=4, nactions=2, hidden_dim=128, act=nn.GELU()):
+    def __init__(self, NSTATES=4, nactions=2, hidden_dim=128, act=nn.GELU()):
         super().__init__()
-        self.w1 = nn.Linear(nstates, hidden_dim)
+        self.w1 = nn.Linear(NSTATES, hidden_dim)
         self.w2 = nn.Linear(hidden_dim, nactions)
         self.act = act
 
-    def forward(self, x): # x is [nstates], want [nactions] as logits
+    def forward(self, x): # x is [NSTATES], want [nactions] as logits
         return self.w2(self.act(self.w1(x)))
 
 class ValueNet(nn.Module): # states -> state values 
-    def __init__(self, nstates=4, hidden_dim=128, act=nn.GELU()):
+    def __init__(self, NSTATES=4, hidden_dim=128, act=nn.GELU()):
         super().__init__()
-        self.w1 = nn.Linear(nstates, hidden_dim)
-        self.w2 = nn.Linear(hidden_dim, nstates)
+        self.w1 = nn.Linear(NSTATES, hidden_dim)
+        self.w2 = nn.Linear(hidden_dim, 1) # output a scalar given a state vector 
         self.act = act
 
-    def forward(self, x): # x is [nstates], want [nactions] as logits
+    def forward(self, x): # x is [NSTATES], want [nactions] as logits
         return self.w2(self.act(self.w1(x)))
 
 # PPO loss computation and what it takes in is key difference from REINFORCE
-def loss_fn(batch_rewards, batch_logprobs, batch_dones, batch_states, batch_next_states, 
-            batch_values, batch_next_values, mask, gamma=0.99, lamb=0.95, clip=0.2, end=0.01, max_rollout_len=50): # all are are [b, ms]
+def loss_fn(policy_net, value_net, 
+            batch_rewards, batch_logprobs, batch_actions, batch_dones, batch_states,
+            batch_values, batch_next_values, mask, gamma=0.99, lamb=0.95, clip=0.2, vf_coef=0.5, ent_coef=0.01, max_rollout_len=50): # all are are [b, ms]
+
+    batch_values = batch_values.detach()
+    batch_next_values = batch_next_values.detach()
 
     # compute td error 
-    deltas = batch_rewards + gamma * batch_next_values * (1.0 - batch_dones) - batch_values # deltas is [b, T]
-    # compute advantage 
-    # advantage is a cumprod from deltas? or loop 
+    deltas = batch_rewards + gamma * batch_next_values * (1.0 - batch_dones.float()) - batch_values # deltas is [b, T]
+    
+    # compute advantage using td error
+    B = deltas.shape[0]
+    A = torch.zeros_like(deltas)
+    A_prev = torch.zeros(B, device=deltas.device) # accum for recurrence below 
+    # A[t] = d[t] + gam * lam * A_prev recurrence by defn of advantage in paper 
+    for t in range(max_rollout_len-1, -1, -1): 
+        mask_t = 1.0 - batch_dones[:, t].to(torch.float)
+        A[:, t] = deltas[:, t] + gamma * lamb * mask_t * A_prev
+        A_prev = A[:, t] # can this be done by cumprod? not clear...
+    
+    # compute ratio term using old/new logprobs
+    new_logits = policy_net(batch_states) # [b, T, nstates] -> [b, T, nactions]
+    new_logprobs_all = F.log_softmax(new_logits, dim=-1)   # [B,T,nactions]
+    new_logprobs = new_logprobs_all.gather(-1, batch_actions.unsqueeze(-1)).squeeze(-1)
 
-    # A_t = sum_{k=0}^T [(lambda * gamma)**k * deltas[t+k]]
-    # A = (lambda * gamma * deltas).cumprod(dim=1)
+    r = torch.exp(new_logprobs - batch_logprobs) # batch logprobs is [b, T] for chosen action
+
+    # finally, compute clipped obj ie. policy loss 
+    clipped_r = torch.max(torch.min(r, 1. + clip), 1. - clip)
+    min_term = torch.min(r * A, clipped_r * A)
+    policy_loss = -torch.sum(min_term * mask)/mask.sum()
     
-    
-    
-    # compute entropy term using old/new logprobs, generate if needed 
     # compute value_net loss 
+    value_preds = value_net(batch_states).flatten() # [b, T, nstates]  -> [b, T]
+    returns = (A + batch_values).squeeze(-1)
+    mse = F.mse_loss(value_preds, returns, reduction='none')
+    value_loss = (mse * mask).sum() / mask.sum()
 
-    # compute clipped obj 
+    # compute entrop loss term 
+    new_probs = F.softmax(new_logits, dim=-1) # [b, T, nactions]
+    entropy = -(new_probs * new_logprobs).sum(dim=-1) # [b, T]
+    entropy_loss = (entropy * mask).sum()/mask.sum()
 
-    # return full obj of clipped + value 
+    # return full obj, a linear combo of the three loss terms
+    return policy_loss + vf_coef * value_loss - ent_coef * entropy_loss
 
-    pass 
-
-def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, verbose=False):
-    policy = PolicyNet().to(device)
-    value_net = ValueNet().to(device)
-    opt = torch.optim.AdamW(policy.parameters(), lr=lr)
-    opt.zero_grad()
+def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, hidden_dim=128, early_stop=False, wandb_log=False, verbose=False):
+    policy = PolicyNet(hidden_dim=hidden_dim).to(device)
+    value_net = ValueNet(hidden_dim=hidden_dim).to(device)
+    opt_pol = torch.optim.AdamW(policy.parameters(), lr=lr)
+    opt_val = torch.optim.AdamW(value_net.parameters(), lr=lr)
+    opt_pol.zero_grad(); opt_val.zero_grad()
     done = False 
     b = batch_size
     
@@ -94,7 +120,7 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, ve
     
     for step in tqdm(range(nsteps)):
         # on-policy, ie. the batch we'll step on a few times in training step has JUST been generated by our current policy 
-        batch_rewards, batch_logprobs, batch_states, batch_next_states, batch_dones = [], [], [], [], []  # both will be [b, sm]
+        batch_rewards, batch_logprobs, batch_actions, batch_states, batch_next_states, batch_dones = [], [], [], [], [], []  # both will be [b, sm]
         true_lens = torch.zeros(b)  # entry i is true len of batch element i, use this with arange to mask mask of size [b, s]
         
         if verbose and step % 5 == 0:
@@ -102,9 +128,13 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, ve
             
         for batch_idx in range(b):  # in contrast to dqn which stores a buffer where we may be learning from 
             i = 0 
-            rollout_rewards, rollout_logprobs = torch.zeros(max_rollout_len), torch.zeros(max_rollout_len)
+            NSTATES = 4
+            rollout_rewards = torch.zeros(max_rollout_len).to(device)
+            rollout_logprobs = torch.zeros(max_rollout_len).to(device)
+            rollout_actions = torch.zeros(max_rollout_len).to(device)
             # need curr and next states, dones, and values for both 
-            rollout_states, rollout_next_states = torch.zeros(max_rollout_len), torch.zeros(max_rollout_len)
+            rollout_states = torch.zeros(max_rollout_len, NSTATES).to(device)
+            rollout_next_states = torch.zeros(max_rollout_len, NSTATES).to(device)
             rollout_dones = torch.zeros(max_rollout_len, dtype=torch.bool).to(device)
 
             done = False 
@@ -124,6 +154,7 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, ve
                 # update info for this experience 
                 rollout_rewards[i] = r
                 rollout_logprobs[i] = logprobs[next_action]
+                rollout_actions[i] = next_action
                 rollout_dones[i] = done 
                 rollout_states[i] = state 
                 rollout_next_states[i] = next_state 
@@ -139,6 +170,7 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, ve
             # add tensor to list to stack later 
             batch_rewards.append(rollout_rewards)
             batch_logprobs.append(rollout_logprobs)
+            batch_actions.append(rollout_actions)
             batch_dones.append(rollout_dones)
             batch_states.append(rollout_states)
             batch_next_states.append(rollout_next_states)
@@ -146,6 +178,7 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, ve
         # list of experiences to feed into loss computation for this 
         batch_rewards = torch.stack(batch_rewards).to(device)
         batch_logprobs = torch.stack(batch_logprobs).to(device)
+        batch_actions = torch.stack(batch_actions).to(device)
         batch_dones = torch.stack(batch_dones).to(device)
         batch_states = torch.stack(batch_states).to(device)
         batch_next_states = torch.stack(batch_next_states).to(device)
@@ -158,17 +191,31 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, ve
         if verbose and step % 5 == 0:
             print(f"Computing loss for batch {step}...")
 
-        data = (batch_rewards, batch_logprobs, batch_dones, batch_states, batch_next_states, batch_values, batch_next_values, mask)
-        loss = loss_fn(*data, gamma=gamma, max_rollout_len=max_rollout_len)
+        data = (batch_rewards, batch_logprobs, batch_actions, batch_dones, batch_states, batch_values, batch_next_values, mask)
+        loss = loss_fn(policy, value_net, *data, gamma=gamma, max_rollout_len=max_rollout_len)
         loss.backward()    
-        opt.step()
-        opt.zero_grad()
+        opt_pol.step()
+        opt_val.step()
+        opt_val.zero_grad()
+        opt_pol.zero_grad()
 
-        if step % 5 == 0 and verbose:
-            avg_length = true_lens.mean().item()
+        avg_length = true_lens.mean().item()
+        if step % 5 == 0:
             min_length = true_lens.min().item()
             max_length = true_lens.max().item()
-            print(f"[{step:4d}/{nsteps:4d}]  ||   Loss = {loss.item():.4f}  ||  Reward(Avg Ep Len) = {avg_length:.1f}  ||  Min/Max Len = {min_length:.1f}/{max_length:.1f}")
+            if verbose:
+                print(f"[{step:4d}/{nsteps:4d}]  ||   Loss = {loss.item():.4f}  ||  Reward(Avg Ep Len) = {avg_length:.1f}  ||  Min/Max Len = {min_length:.1f}/{max_length:.1f}")
+            if wandb_log:
+                wandb.log({
+                    "loss": loss.item(),
+                    "avg_episode_length": avg_length,
+                    "min_episode_length": min_length,
+                    "max_episode_length": max_length
+                })
+
+        if early_stop and avg_length > 195:
+            print(f"Environment solved at step {step} with average reward {avg_length}!")
+            break
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train PPO on CartPole')
@@ -187,6 +234,10 @@ if __name__ == "__main__":
     if args.verbose:
         print("Starting PPO training on CartPole-v1 environment")
         print(f"Arguments: {args}")
+
+    if args.wandb:
+        wandb.init(project="cartpole-ppo")
+        wandb.config.update(args)
     
     train(
         nsteps=args.nsteps,
@@ -194,5 +245,8 @@ if __name__ == "__main__":
         max_rollout_len=args.max_rollout_len,
         lr=args.lr,
         gamma=args.gamma,
+        hidden_dim=args.hidden_dim,
+        early_stop=args.early_stop,
+        wandb_log=args.wandb,
         verbose=args.verbose
     )
