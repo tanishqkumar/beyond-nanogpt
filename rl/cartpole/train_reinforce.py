@@ -44,7 +44,10 @@ class PolicyNet(nn.Module): # states -> action probs
         return self.w2(self.act(self.w1(x)))
 
 def loss_fn(rewards, logprobs, mask, gamma=0.99, max_rollout_len=50): # first two are [b, ms]
-    # transform r into returns R_t with exponential discounting 
+    # transform r into returns R_t with exponential discounting using a convolution
+        # this is a little subtle so you should make sure you know what the discounting matrix G looks like 
+        # and how it was constructed using torch broadcasting as well as why doing a matmul with it 
+        # takes rewards -> returns in the correct way. these details are critical to understand!
     idx = torch.arange(max_rollout_len, device=rewards.device)
     power_mat = idx[:,None] - idx[None,:]     # (k,t)=k−t
     G = torch.tril(gamma**power_mat)  # already lower‐triangular
