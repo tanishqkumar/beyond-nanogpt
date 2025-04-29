@@ -55,7 +55,6 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [ ] LSTM
 - [ ] MoE
 - [ ] Decision Transformer
-- [ ] Mamba
 
 ### Key Attention Variants
 - [x] Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` 
@@ -116,19 +115,6 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [ ] Implement DDIM for faster sampling
 - [ ] Add classifier-free guidance for conditional control 
 - [ ] Implement discrete diffusion for language modeling 
-
-### Key Agents Techniques 
-- [ ] Simulate a Society as in "Generative Simulcra"
-- [ ] Implement ReAct + Function Calling on a base model so it can use tools to respond to queries
-- [ ] Make an LLM agent that takes (instructions, GitHub credentials) and makes a simple PR in the repo
-- [ ] Make an LLM agent that can add items to cart and screenshot the total on WebArena
-
-### Key Multimodality Techniques 
-- [ ] CLIP-style constrastive vision-language pretraining
-- [ ] Flamingo-style interleaved images with text pretraining
-- [ ] Pali-X: Use masking to bridge modalities 
-- [ ] ImageBind-style alignment of modalities at token-level 
-- [ ] SeamlessM4T-style audio unit-tokens pretraining
 
 ---
 
