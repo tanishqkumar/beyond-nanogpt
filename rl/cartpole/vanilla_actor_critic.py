@@ -1,7 +1,6 @@
 '''
-changes to get a3c: 
-    (a1c)
-    - change to pendulum environment where action is scalar 
+Changes to take REINFORCE -> vanilla actor-critic (A1C)
+    - change to pendulum environment from cartpole, where now action is scalar 
         - new nstates=3, nactions=1 scalar
         - also means we output the mean of a distribution now from which we sample actions
         - no need for mask since pendulum always runs to a max step budget, no "dones" need to be stored 
@@ -11,7 +10,7 @@ changes to get a3c:
         - include entropy loss 
     - put everything on a single cpu & make networks smaller
     
-    (a3c)
+Changes to take A1C -> A3c
     - add a worker_fn that 
         - does a batch of rollouts
         - compute loss 
@@ -37,7 +36,6 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Conversion of an array with ndim > 0 to a scalar is deprecated")
 warnings.filterwarnings("ignore", message="`np.bool8` is a deprecated alias for `np.bool_`")
 
-
 env = gym.make('Pendulum-v1')
 device = 'cpu' # a3c uses only cpu, but many in parallel doing async rollouts and writing to shared mem 
 
@@ -53,7 +51,7 @@ class PolicyNet(nn.Module): # states -> action probs, modified now for pendulum 
         return self.w2(self.act(self.w1(x)))
 
     def forward(self, state, env_left=-2.0, env_right=2.0): # [nstates] -> (action scalar, lp scalar)
-        action_mean = self._forward(state) # internal forward returning mean, this is a distributional wrapper 
+        action_mean = self._forward(state) # internal forward returning mean, forward is a distributional wrapper 
         action_std = torch.exp(self.log_std)
 
         distb = torch.distributions.Normal(action_mean, action_std)
@@ -84,20 +82,13 @@ def rewards2returns(value_net, rewards, states, gamma=0.99, max_rollout_len=50, 
 
     # add (gamma ** n) * (V(s_{t+n}) * mask)
     B, T, S = states.shape 
-    flat_states = states.reshape(B*T, S)
-    V = value_net(flat_states).reshape(B, T, -1).unsqueeze(-1) # [B, T, 1] -> [B, T]
+    # Create shifted states tensor where states_shifted[b,t] = states[b,t+n] if t+n < T else zeros
+    states_shifted = torch.zeros_like(states)
+    states_shifted[:, :-n] = states[:, n:]  # Shift states by n steps
+    flat_states_shifted = states_shifted.reshape(B*T, S)
+    V_shifted = value_net(flat_states_shifted).reshape(B, T, -1).unsqueeze(-1) # [B, T, 1] -> [B, T]
     
-    
-    # for each token t we want V_{t+n} 
-    # V[i,j] = value of states[i,j] which is a [nstates] vector 
-    # in returns we have for each token \sum_{i=0}^n g^i rewards
-
-    value_term = (gamma ** n) * V[:, n]
-
-
-    
-    
-    return n_step_returns + value_term 
+    return n_step_returns + (gamma ** n) * V_shifted
 
 def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollout_len=50, val_coeff=0.5, ent_coeff=0.01, n=10): # first two are [b, ms]
     returns = rewards2returns(
