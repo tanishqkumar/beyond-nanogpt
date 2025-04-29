@@ -22,6 +22,9 @@ D: image -> logits for each class (real vs fake)
 Note, D_loss≈1.386 at convergence when its right half the time, ie. no better than chance
 at discriminating generator outputs from the true training distribution. 
 
+Here we use a minimal example: MNIST as our training distribution, and MLPs as our networks. Larger scale ones 
+use harder distributions and convolutional archs. Also, batchNorms are empirically important for stable training. 
+
 '''
 
 import torch 
