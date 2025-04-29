@@ -1,6 +1,9 @@
 '''
 (https://arxiv.org/pdf/1406.2661) Generative Adversarial Nets. 
 
+Note. Obviously GANs are not diffusion models. They are included in this section because they were the key 
+motivation and precursor to diffusion and modern generative models, and I personally think they are an important 
+pre-requisite before one looks at diffusion to understand the setting in which it was invented/motivated. 
 
 GANs pit two neural networks against each other: a generator that creates fake data and a discriminator that tries to tell 
 real from fake. Through this adversarial process, the generator gets better at creating realistic data 
