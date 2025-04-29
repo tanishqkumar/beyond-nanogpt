@@ -24,10 +24,6 @@ at discriminating generator outputs from the true training distribution.
 
 '''
 
-
-
-
-
 import torch 
 import torch.nn as nn 
 import torch.nn.functional as F
