@@ -22,7 +22,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 2. **Get Minimal Dependencies:**
 
    ```bash
-   pip install torch numpy torchvision wandb tqdm transformers datasets diffusers matplotlib pillow jupyter
+   pip install torch numpy torchvision wandb tqdm transformers datasets diffusers matplotlib pillow jupyter gym 
    ```
 
 3. **Start learning!**
