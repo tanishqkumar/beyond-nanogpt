@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 from torchvision import datasets, transforms
+from torchvision.utils import save_image  
 from torch.utils.data import DataLoader
 from tqdm import tqdm 
 import ssl
@@ -25,10 +26,12 @@ class Generator(nn.Module):
         layers = []
         # First hidden layer: from latent vector to hidden_dim
         layers.append(nn.Linear(latent_dim, hidden_dim))
+        layers.append(nn.BatchNorm1d(hidden_dim))
         layers.append(act)
         # Additional hidden layers if nlayers > 1
         for _ in range(nlayers - 1):
             layers.append(nn.Linear(hidden_dim, hidden_dim))
+            layers.append(nn.BatchNorm1d(hidden_dim))
             layers.append(act)
         # Final layer to produce output image pixels
         layers.append(nn.Linear(hidden_dim, out_ch * out_h * out_w))
@@ -53,10 +56,12 @@ class Discriminator(nn.Module):  # [out_ch, out_h, out_w] -> 2 logits
         layers = []
         # First hidden layer: from flattened image to hidden_dim
         layers.append(nn.Linear(input_dim, hidden_dim))
+        layers.append(nn.BatchNorm1d(hidden_dim))
         layers.append(act)
         # Additional hidden layers if nlayers > 1
         for _ in range(nlayers - 1):
             layers.append(nn.Linear(hidden_dim, hidden_dim))
+            layers.append(nn.BatchNorm1d(hidden_dim))
             layers.append(act)
         # Final output layer to produce a single logit
         layers.append(nn.Linear(hidden_dim, 1))
@@ -65,14 +70,12 @@ class Discriminator(nn.Module):  # [out_ch, out_h, out_w] -> 2 logits
     def forward(self, x): 
         b, _, _, _ = x.shape
         x = x.reshape(b, -1)  # flatten image
-        logit = self.net(x)
-        return torch.sigmoid(logit)  # output in [0, 1]
+        return self.net(x)  # output in [0, 1]
 
 
 def train(latent_dim=100, out_ch=1, out_h=28, out_w=28, mult=4, nlayers=1,
-          batch_sz=128, nepochs=100, lr=2e-4, beta1=0.5, verbose=False):
+          batch_sz=128, nepochs=100, lr=2e-4, beta1=0.5, verbose=False, sample=False, cripple_factor=4):
 
-    # Detect device and ensure consistent usage (cuda if available, else cpu)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     transform = transforms.Compose([
@@ -80,34 +83,38 @@ def train(latent_dim=100, out_ch=1, out_h=28, out_w=28, mult=4, nlayers=1,
         transforms.Normalize((0.5,), (0.5,))  # Normalize to [-1, 1]
     ])
 
-    D = Discriminator(out_ch=out_ch, out_h=out_h, out_w=out_w, mult=mult, nlayers=nlayers).to(device) 
+    D = Discriminator(out_ch=out_ch, out_h=out_h, out_w=out_w, mult=mult//cripple_factor, nlayers=nlayers).to(device) 
     D_opt = torch.optim.Adam(D.parameters(), lr=lr, betas=(beta1, 0.999))
 
     G = Generator(latent_dim=latent_dim, out_ch=out_ch, out_h=out_h, out_w=out_w, mult=mult, nlayers=nlayers).to(device)
-    G_opt = torch.optim.Adam(G.parameters(), lr=lr, betas=(beta1, 0.999))
+    G_opt = torch.optim.Adam(G.parameters(), lr=lr*cripple_factor, betas=(beta1, 0.999))
+
+    D.train(); G.train()
 
     # setup dataset/loader 
     mnist = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
     dataloader = DataLoader(mnist, batch_size=batch_sz, shuffle=True, num_workers=1)
+    criterion = nn.BCEWithLogitsLoss()
 
     for epoch in tqdm(range(nepochs)):
         for real_batch, _ in dataloader:
             real_batch = real_batch.to(device)
             # update D to maximize [D(real_batch) - D(fake_batch)]
-            z = torch.randn(real_batch.shape[0], latent_dim, device=device)
+            bsz = real_batch.shape[0]
+            z = torch.randn(bsz, latent_dim, device=device)
             fake_batch = G(z).detach()
             Dfake = D(fake_batch)
             Dreal = D(real_batch)
-            D_loss = -torch.log(Dreal + 1e-8).mean() - torch.log(1 - Dfake + 1e-8).mean()
+            D_loss = criterion(Dreal, torch.ones(bsz, 1, device=device)) + criterion(Dfake, torch.zeros(bsz, 1, device=device))
             D_opt.zero_grad()
             D_loss.backward()
             D_opt.step()
 
             # update G to maximize probability that D makes a mistake 
-            z = torch.randn(real_batch.shape[0], latent_dim, device=device)
+            z = torch.randn(bsz, latent_dim, device=device)
             fake_batch = G(z)
             disc_guess = D(fake_batch)  # in [0, 1] and want it to be close to 1
-            G_loss = -torch.log(disc_guess + 1e-8).mean()  # if disc = 1, then loss vanishes 
+            G_loss = criterion(disc_guess, torch.ones(bsz, 1, device=device))  # if disc = 1, then loss vanishes 
             G_opt.zero_grad()
             G_loss.backward()
             G_opt.step()
@@ -115,6 +122,19 @@ def train(latent_dim=100, out_ch=1, out_h=28, out_w=28, mult=4, nlayers=1,
         if verbose:
             print(f'Epoch {epoch}: D_loss = {D_loss.item():.4f}, G_loss = {G_loss.item():.4f}')
 
+    if sample: 
+        G.eval()
+        nsamples = 10 
+        with torch.no_grad(): 
+            z = torch.randn(nsamples, latent_dim, device=device)
+            generated_minibatch = G(z)
+
+        # Denormalize images from [-1, 1] to [0, 1] for proper visualization
+        generated_minibatch = (generated_minibatch + 1) / 2
+        # Save the generated images as a grid; here, arranging 5 images per row (adjust nrow as needed)
+        save_image(generated_minibatch, 'generated_minibatch.png', nrow=5)
+        print("Saved generated images to generated_minibatch.png")
+        
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train GAN on MNIST')
@@ -128,7 +148,9 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=100, help='Number of training epochs')
     parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
     parser.add_argument('--beta1', type=float, default=0.5, help='Beta1 for Adam optimizer')
+    parser.add_argument('--cripple', type=float, default=4.0, help='Cripple factor for G>D')
     parser.add_argument('--verbose', action='store_true', help='Print training progress')
+    parser.add_argument('--sample', action='store_true', help='Sample from GAN at end...')
     
     args = parser.parse_args()
     
@@ -143,6 +165,8 @@ if __name__ == "__main__":
         nepochs=args.epochs,
         lr=args.lr,
         beta1=args.beta1,
-        verbose=args.verbose
+        verbose=args.verbose,
+        sample=args.sample,
+        cripple_factor=args.cripple,
     )
 
