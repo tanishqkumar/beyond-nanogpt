@@ -1,6 +1,6 @@
 '''
 Changes to take REINFORCE -> vanilla actor-critic (A1C)
-    - change to pendulum environment from cartpole, where now action is scalar 
+    - change to pendulum environment from Pendulum, where now action is scalar 
         - new nstates=3, nactions=1 scalar
         - also means we output the mean of a distribution now from which we sample actions
         - no need for mask since pendulum always runs to a max step budget, no "dones" need to be stored 
@@ -37,9 +37,10 @@ warnings.filterwarnings("ignore", message="Conversion of an array with ndim > 0 
 warnings.filterwarnings("ignore", message="`np.bool8` is a deprecated alias for `np.bool_`")
 
 env = gym.make('Pendulum-v1')
-device = 'cpu' # a3c uses only cpu, but many in parallel doing async rollouts and writing to shared mem 
+# device = 'cpu' # a3c uses only cpu, but many in parallel doing async rollouts and writing to shared mem 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-class PolicyNet(nn.Module): # states -> action probs, modified now for pendulum instead of cartpole, so 3 -> 1
+class PolicyNet(nn.Module): # states -> action probs, modified now for pendulum instead of Pendulum, so 3 -> 1
     def __init__(self, nstates=3, nactions=1, hidden_dim=32, act=nn.GELU()):
         super().__init__()
         self.w1 = nn.Linear(nstates, hidden_dim)
@@ -73,7 +74,7 @@ class ValueNet(nn.Module): # states -> values for states
     
 
 # rewards -> final returns incl. n-step discounting and critic bootstrapping + V_{s+n}
-def rewards2returns(value_net, rewards, states, gamma=0.99, max_rollout_len=50, n=10): 
+def rewards2adv(value_net, rewards, states, gamma=0.99, max_rollout_len=50, n=10): 
     idx = torch.arange(max_rollout_len, device=rewards.device)
     power_mat = idx[:,None] - idx[None,:]     # (k,t)=k−t
     n_step_mask = ((power_mat >= 0) & (power_mat < n)).float()
@@ -92,7 +93,7 @@ def rewards2returns(value_net, rewards, states, gamma=0.99, max_rollout_len=50, 
     return n_step_returns + (gamma ** n) * V_shifted.detach()
 
 def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollout_len=50, val_coeff=0.5, ent_coeff=0.01, n=10): # first two are [b, ms]
-    returns = rewards2returns(
+    advantages = rewards2adv(
         value_net,
         rewards,
         states,
@@ -101,16 +102,16 @@ def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollou
         n=n
     )
 
-    norm_returns = (returns - returns.mean())/(returns.std() + 1e-8)
+    norm_adv = (advantages - advantages.mean())/(advantages.std() + 1e-8)
     # return -Reward = -E[R_t * logprob] as loss like in REINFORCE
-    policy_loss_t = (-norm_returns * logprobs).mean()
+    policy_loss_t = (-norm_adv * logprobs).mean()
 
     # get loss to update value network so it's better at predicting returns 
         # since that's how we're using it, 
     batch_size, seq_len = states.shape[0], states.shape[1]
     reshaped_states = states.view(batch_size * seq_len, -1)
     values = value_net(reshaped_states).view(batch_size, seq_len)    
-    value_loss_t = ((returns - values) ** 2).mean()
+    value_loss_t = F.mse_loss(values, advantages)
     
     # compute entropy_loss_t using policy.log_std of action distribution
     # Proper entropy calculation for Normal distribution
@@ -149,11 +150,11 @@ def train(nsteps=100, batch_size=16, max_rollout_len=200, lr=1e-3, gamma=0.99, v
             rollout_states = torch.zeros(max_rollout_len, nstates)
             state, _ = env.reset()
 
-            state = torch.from_numpy(state).float()
+            state = torch.from_numpy(state).float().to(device)
             # generate a single rollout
             while i < max_rollout_len:
                 next_action, logprob_next_action = policy(state)
-                next_action_float = float(next_action.detach().numpy())
+                next_action_float = float(next_action.detach().cpu().numpy())
                 next_state, r, _, _, _ = env.step([next_action_float])
                 rollout_rewards[i] = float(r)
                 rollout_logprobs[i] = logprob_next_action
@@ -191,13 +192,13 @@ def train(nsteps=100, batch_size=16, max_rollout_len=200, lr=1e-3, gamma=0.99, v
             print(f"[{step:4d}/{nsteps:4d}]  ||   Loss = {loss.item():.4f} ")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Train REINFORCE on CartPole')
+    parser = argparse.ArgumentParser(description='Train Actor-Critic on Pendulum')
     parser.add_argument('--nsteps', type=int, default=500, help='Number of training steps')
-    parser.add_argument('--batch-size', type=int, default=64, help='Batch size')
+    parser.add_argument('--batch-size', type=int, default=256, help='Batch size')
     parser.add_argument('--max-rollout-len', type=int, default=200, help='Maximum rollout length')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor')
-    parser.add_argument('--hidden-dim', type=int, default=32, help='Hidden dimension size for policy network')
+    parser.add_argument('--hidden-dim', type=int, default=128, help='Hidden dimension size for policy network')
     parser.add_argument('--early-stop', action='store_true', help='Stop training once environment is solved (avg reward > 195)')
     parser.add_argument('--wandb', action='store_true', help='Use wandb logging')
     parser.add_argument('--verbose', action='store_true', help='Print training progress')
@@ -205,7 +206,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.verbose:
-        print("Starting REINFORCE training on CartPole-v1 environment")
+        print("Starting Actor-Critic training on Pendulum-v1 environment")
         print(f"Arguments: {args}")
     
     train(
