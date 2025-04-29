@@ -1,4 +1,7 @@
 '''
+work in progress...
+
+
 Changes to take REINFORCE -> vanilla actor-critic (A1C)
     - change to pendulum environment from Pendulum, where now action is scalar
         - new nstates=3, nactions=1 scalar
@@ -95,7 +98,7 @@ def rewards2returns(value_net, rewards, states, gamma=0.99, max_rollout_len=50, 
     # don't want to update val_net based on policy loss, so detach (already done via torch.no_grad)
     return n_step_returns + (gamma ** n) * V_shifted
 
-def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollout_len=50, val_coeff=0.5, ent_coeff=0.01, n=10): # first two are [b, ms]
+def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollout_len=50, val_coeff=0.01, ent_coeff=1e-4, n=10): # first two are [b, ms]
     batch_size, seq_len = states.shape[0], states.shape[1]
     returns = rewards2returns(
         value_net,
@@ -107,7 +110,6 @@ def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollou
     )
 
     with torch.no_grad(): 
-        # 
         advantages = returns - value_net(states).reshape(batch_size, seq_len)
 
     # Detach advantages used for policy loss calculation, but not for value loss
@@ -121,7 +123,7 @@ def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollou
     reshaped_states = states.view(batch_size * seq_len, -1)
     values = value_net(reshaped_states).view(batch_size, seq_len)
     # Use the original advantages (with gradients) for value loss
-    value_loss_t = F.mse_loss(values, advantages)
+    value_loss_t = F.mse_loss(values, returns) # TODO: understand this and why val/policy loss are such diff scales...
 
     # compute entropy_loss_t using policy.log_std of action distribution
     # Proper entropy calculation for Normal distribution
@@ -132,9 +134,8 @@ def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollou
     entropy_loss_t = 0.5 * (torch.log(2 * pi_tensor * math.e * action_std.pow(2))).mean()
 
 
-    # Optional: Print individual loss components for debugging/monitoring
-    # Consider adding a condition (e.g., based on training step or a verbose flag) if this becomes too noisy
-    # print(f"Policy Loss: {policy_loss_t.item():.4f}, Value Loss: {value_loss_t.item():.4f}, Entropy Loss: {entropy_loss_t.item():.4f}")
+    # Print the magnitude of each loss component for monitoring/debugging
+    print(f"Policy Loss: {policy_loss_t.item():.4f}, Value Loss (x{val_coeff}): {value_loss_t.item():.4f}, Entropy Loss (x{ent_coeff}): {entropy_loss_t.item():.4f}")
 
     return policy_loss_t + val_coeff * value_loss_t - ent_coeff * entropy_loss_t
 
@@ -142,7 +143,7 @@ def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollou
 def train(nsteps=100, batch_size=16, max_rollout_len=200, lr=1e-3, gamma=0.99, verbose=False, nstates=3, policy_hidden_dim=128, value_hidden_dim=128):
     policy = PolicyNet(hidden_dim=policy_hidden_dim, nstates=nstates).to(device)
     value_net = ValueNet(hidden_dim=value_hidden_dim, nstates=nstates).to(device)
-    opt_pol = torch.optim.AdamW(policy.parameters(), lr=lr)
+    opt_pol = torch.optim.AdamW(policy.parameters(), lr=lr * 3)
     opt_pol.zero_grad()
     opt_val = torch.optim.AdamW(value_net.parameters(), lr=lr)
     opt_val.zero_grad()
@@ -202,7 +203,7 @@ def train(nsteps=100, batch_size=16, max_rollout_len=200, lr=1e-3, gamma=0.99, v
         batch_logprobs = torch.stack(batch_logprobs)
         batch_states = torch.stack(batch_states)
 
-        if verbose and step % 5 == 0:
+        if verbose: # and step % 1 == 0
             print(f"Computing loss for batch {step}...")
 
         # TODO: learn to take multiple steps without backward repeat issue, ie. need new forward/probs under new policy?
