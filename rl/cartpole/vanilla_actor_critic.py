@@ -76,7 +76,7 @@ class ValueNet(nn.Module): # states -> values for states
 def rewards2returns(value_net, rewards, states, gamma=0.99, max_rollout_len=50, n=10): 
     idx = torch.arange(max_rollout_len, device=rewards.device)
     power_mat = idx[:,None] - idx[None,:]     # (k,t)=k−t
-    n_step_mask = (power_mat>=0 & power_mat<n).float()
+    n_step_mask = ((power_mat >= 0) & (power_mat < n)).float()
     G = torch.tril(gamma**power_mat)  # already lower‐triangular
     n_step_returns = rewards @ (G * n_step_mask) # [b, msl] @ [msl, msl] -> [b, msl]
 
@@ -86,9 +86,10 @@ def rewards2returns(value_net, rewards, states, gamma=0.99, max_rollout_len=50, 
     states_shifted = torch.zeros_like(states)
     states_shifted[:, :-n] = states[:, n:]  # Shift states by n steps
     flat_states_shifted = states_shifted.reshape(B*T, S)
-    V_shifted = value_net(flat_states_shifted).reshape(B, T, -1).unsqueeze(-1) # [B, T, 1] -> [B, T]
+    V_shifted = value_net(flat_states_shifted).reshape(B, T, -1).squeeze(-1) # [B, T, 1] -> [B, T]
     
-    return n_step_returns + (gamma ** n) * V_shifted
+    # don't want to update val_net based on policy loss, so detach
+    return n_step_returns + (gamma ** n) * V_shifted.detach()
 
 def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollout_len=50, val_coeff=0.5, ent_coeff=0.01, n=10): # first two are [b, ms]
     returns = rewards2returns(
@@ -112,7 +113,10 @@ def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollou
     value_loss_t = ((returns - values) ** 2).mean()
     
     # compute entropy_loss_t using policy.log_std of action distribution
-    entropy_loss_t = 0.5 * policy.log_std.mean()  
+    # Proper entropy calculation for Normal distribution
+    # Entropy of Normal(μ,σ) = 0.5 * log(2πeσ²)
+    action_std = torch.exp(policy.log_std)
+    entropy_loss_t = 0.5 * (torch.log(2 * torch.pi * action_std.pow(2)) + 1).mean()
 
     return policy_loss_t + val_coeff * value_loss_t - ent_coeff * entropy_loss_t
 
@@ -159,8 +163,7 @@ def train(nsteps=100, batch_size=16, max_rollout_len=200, lr=1e-3, gamma=0.99, v
                 i += 1
                 
                 if i == max_rollout_len:
-                    true_lens[batch_idx] = i 
-                    if verbose and batch_idx % 10 == 0 and step % 5 == 0:
+                    if verbose and step and step % 100 == 0:
                         print(f"  Rollout {batch_idx}: length {i}, final reward {r}")
 
             # add tensor to list to stack later 
