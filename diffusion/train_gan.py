@@ -1,6 +1,30 @@
-# G: latent vector of latent_dim -> image [ch, h, w]
-# D: image -> logits for each class (real vs fake)
-# D_loss≈1.386 at convergence when its right half the time 
+'''
+(https://arxiv.org/pdf/1406.2661) Generative Adversarial Nets. 
+
+
+GANs pit two neural networks against each other: a generator that creates fake data and a discriminator that tries to tell 
+real from fake. Through this adversarial process, the generator gets better at creating realistic data 
+while the discriminator improves at spotting fakes. You can also think of it as co-operative where 
+the discriminator tells the generator its "weak spots" (ie. portions of its generation space that are not well trained)
+and then the generator focusses on "patching" those. 
+
+It's not at all obvious this should work, but apparently there's a proof that such a setup
+forces existence of a unique Nash eqm where discriminator cannot do better than random and generator
+has learned the training distribution. 
+
+G: latent vector of latent_dim -> image [ch, h, w]
+D: image -> logits for each class (real vs fake)
+
+
+Note, D_loss≈1.386 at convergence when its right half the time, ie. no better than chance
+at discriminating generator outputs from the true training distribution. 
+
+'''
+
+
+
+
+
 import torch 
 import torch.nn as nn 
 import torch.nn.functional as F
@@ -24,16 +48,16 @@ class Generator(nn.Module):
         self.mult = mult 
         hidden_dim = latent_dim * mult
         layers = []
-        # First hidden layer: from latent vector to hidden_dim
+
         layers.append(nn.Linear(latent_dim, hidden_dim))
         layers.append(nn.BatchNorm1d(hidden_dim))
         layers.append(act)
-        # Additional hidden layers if nlayers > 1
+
         for _ in range(nlayers - 1):
             layers.append(nn.Linear(hidden_dim, hidden_dim))
             layers.append(nn.BatchNorm1d(hidden_dim))
             layers.append(act)
-        # Final layer to produce output image pixels
+        # final layer to produce output image pixels
         layers.append(nn.Linear(hidden_dim, out_ch * out_h * out_w))
         self.net = nn.Sequential(*layers)
 
@@ -52,38 +76,40 @@ class Discriminator(nn.Module):  # [out_ch, out_h, out_w] -> 2 logits
         self.mult = mult
         self.flattened_img_sz = out_ch * out_h * out_w
         input_dim = self.flattened_img_sz
-        hidden_dim = input_dim * mult
+        hidden_dim = int(input_dim * mult)  # ensure hidden_dim is an integer
         layers = []
-        # First hidden layer: from flattened image to hidden_dim
+        # first hidden layer: from flattened image to hidden_dim
         layers.append(nn.Linear(input_dim, hidden_dim))
         layers.append(nn.BatchNorm1d(hidden_dim))
         layers.append(act)
-        # Additional hidden layers if nlayers > 1
+        
+        # nlayers = n_hidden_layers, maybe bad naming by me 
         for _ in range(nlayers - 1):
             layers.append(nn.Linear(hidden_dim, hidden_dim))
             layers.append(nn.BatchNorm1d(hidden_dim))
             layers.append(act)
-        # Final output layer to produce a single logit
+        
+        # final output layer to produce a single logit
         layers.append(nn.Linear(hidden_dim, 1))
         self.net = nn.Sequential(*layers)
     
     def forward(self, x): 
         b, _, _, _ = x.shape
         x = x.reshape(b, -1)  # flatten image
-        return self.net(x)  # output in [0, 1]
-
+        return self.net(x)  # output is a logit, bcewithlogits loss takes care of mapping to [0,1] inside
+    
 
 def train(latent_dim=100, out_ch=1, out_h=28, out_w=28, mult=4, nlayers=1,
           batch_sz=128, nepochs=100, lr=2e-4, beta1=0.5, verbose=False, sample=False, cripple_factor=4):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    transform = transforms.Compose([
+    transform = transforms.Compose([ # standard mnist transform from stack overflow 
         transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,))  # Normalize to [-1, 1]
+        transforms.Normalize((0.5,), (0.5,))  
     ])
 
-    D = Discriminator(out_ch=out_ch, out_h=out_h, out_w=out_w, mult=mult//cripple_factor, nlayers=nlayers).to(device) 
+    D = Discriminator(out_ch=out_ch, out_h=out_h, out_w=out_w, mult=int(mult/cripple_factor), nlayers=nlayers).to(device) 
     D_opt = torch.optim.Adam(D.parameters(), lr=lr, betas=(beta1, 0.999))
 
     G = Generator(latent_dim=latent_dim, out_ch=out_ch, out_h=out_h, out_w=out_w, mult=mult, nlayers=nlayers).to(device)
@@ -129,9 +155,9 @@ def train(latent_dim=100, out_ch=1, out_h=28, out_w=28, mult=4, nlayers=1,
             z = torch.randn(nsamples, latent_dim, device=device)
             generated_minibatch = G(z)
 
-        # Denormalize images from [-1, 1] to [0, 1] for proper visualization
+        # denormalize images from [-1, 1] to [0, 1] for proper visualization
         generated_minibatch = (generated_minibatch + 1) / 2
-        # Save the generated images as a grid; here, arranging 5 images per row (adjust nrow as needed)
+        # save the generated images as a grid; here, arranging 5 images per row (adjust nrow as needed)
         save_image(generated_minibatch, 'generated_minibatch.png', nrow=5)
         print("Saved generated images to generated_minibatch.png")
         
@@ -149,6 +175,12 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
     parser.add_argument('--beta1', type=float, default=0.5, help='Beta1 for Adam optimizer')
     parser.add_argument('--cripple', type=float, default=4.0, help='Cripple factor for G>D')
+    # cripple "cripples" the discriminator to make training easier for the generator
+    # this trick is often used in GAN training to allow the generator to reach low loss
+    # since "discrimination is easier than generation"
+    # and in general getting GANs to train stably is a nightmare
+    # which is why so many follow up papers (DCGAN, Wasserstein GANs) are focused on new ideas
+    # for stable training as well as partly why Diffusion Models "won the day"
     parser.add_argument('--verbose', action='store_true', help='Print training progress')
     parser.add_argument('--sample', action='store_true', help='Sample from GAN at end...')
     
@@ -169,4 +201,3 @@ if __name__ == "__main__":
         sample=args.sample,
         cripple_factor=args.cripple,
     )
-
