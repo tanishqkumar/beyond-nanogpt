@@ -87,7 +87,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
       - [x] REINFORCE `train_reinforce.py`
       - [x] PPO `train_ppo.py`
    - Actor-Critic and Distributed Variants `rl/pendulum`
-      - [x] Vanilla Actor-Critic (A1C)
+      - [x] Vanilla Actor-Critic (A1C) `train_a1c.py`
       - [ ] Asynchronous Advantage Actor-Critic (A3C)
       - [ ] Synchronous Advantage Actor-Critic (A2C)
       - [ ] HalfCheetah‑v3 with SAC (off-policy)
@@ -114,7 +114,6 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 ### Key Diffusion Techniques 
 - [x] Image generation with a GAN `diffusion/train_gan.py`
 - [ ] Image generation wtih a U‑Net via DDPM on CIFAR‑10
-- [ ] Ablate noise schedules and score matching
 - [ ] Implement DDIM for faster sampling
 - [ ] Add classifier-free guidance for conditional control 
 - [ ] Implement discrete diffusion for language modeling 
