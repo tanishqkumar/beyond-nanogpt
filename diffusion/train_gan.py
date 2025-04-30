@@ -11,16 +11,17 @@ while the discriminator improves at spotting fakes. You can also think of it as 
 the discriminator tells the generator its "weak spots" (ie. portions of its generation space that are not well trained)
 and then the generator focusses on "patching" those. 
 
-It's not at all obvious this should work, but apparently there's a proof that such a setup
-forces existence of a unique Nash eqm where discriminator cannot do better than random and generator
+It's not at all obvious this should work, but in the paper there's a proof (Prop 1) that such a setup
+forces a unique Nash eqm where discriminator cannot do better than random and generator
 has learned the training distribution. 
 
-G: latent vector of latent_dim -> image [ch, h, w]
-D: image -> logits for each class (real vs fake)
+G: latent vector of latent_dim -> image [ch, h, w] ("generation")
+D: image -> logits for each class (real vs fake) ("discrimination")
 
 
 Note, D_loss≈1.386 at convergence when its right half the time, ie. no better than chance
-at discriminating generator outputs from the true training distribution. 
+at discriminating generator outputs from the true training distribution, so this is the number that would let us know 
+our paired nets have convered and G(x) = p_{data}(x) as desired. 
 
 Here we use a minimal example: MNIST as our training distribution, and MLPs as our networks. Larger scale ones 
 use harder distributions and convolutional archs. Also, batchNorms are empirically important for stable training. 

@@ -109,12 +109,13 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [ ] 4-bit weight-only quantization
 
 ### Key Diffusion Techniques 
-- [ ] Image generation with a GAN
+- [x] Image generation with a GAN `diffusion/train_gan.py`
 - [ ] Train a simple U‑Net DDPM on CIFAR‑10
 - [ ] Noise schedules and score matching
 - [ ] Implement DDIM for faster sampling
 - [ ] Add classifier-free guidance for conditional control 
 - [ ] Implement discrete diffusion for language modeling 
+- [ ] Implement flow matching and compare to diffusion
 
 ---
 
