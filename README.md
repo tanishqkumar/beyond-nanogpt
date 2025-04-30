@@ -82,16 +82,19 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 
 ### Key RL Techniques 
 - Classical RL:
-   - Cartpole: `rl/cartpole`
+   - Fundamentals `rl/cartpole`
       - [x] DQN `train_dqn.py`
       - [x] REINFORCE `train_reinforce.py`
       - [x] PPO `train_ppo.py`
-   - Pendulum v1
-      - [ ] A2C
-      - [ ] A3C
-   - [ ] HalfCheetah‑v3 with SAC (off-policy)
-   - [ ] CarRacing‑v2 with MPC (model-based RL)
-   - [ ] IMPALA (distributed RL)
+   - Actor-Critic and Distributed Variants `rl/pendulum`
+      - [x] Vanilla Actor-Critic (A1C)
+      - [ ] Asynchronous Advantage Actor-Critic (A3C)
+      - [ ] Synchronous Advantage Actor-Critic (A2C)
+      - [ ] HalfCheetah‑v3 with SAC (off-policy)
+      - [ ] IMPALA (distributed RL)
+   - Model-based RL 
+      - [ ] PETS 
+      - [ ] MBPO 
    - [ ] Neural Chess Engine (self-play, MCTS)
 - LLMs
    - [ ] RL finetune a small LM to do arithmetic against a calculator program 
@@ -110,8 +113,8 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 
 ### Key Diffusion Techniques 
 - [x] Image generation with a GAN `diffusion/train_gan.py`
-- [ ] Train a simple U‑Net DDPM on CIFAR‑10
-- [ ] Noise schedules and score matching
+- [ ] Image generation wtih a U‑Net via DDPM on CIFAR‑10
+- [ ] Ablate noise schedules and score matching
 - [ ] Implement DDIM for faster sampling
 - [ ] Add classifier-free guidance for conditional control 
 - [ ] Implement discrete diffusion for language modeling 
