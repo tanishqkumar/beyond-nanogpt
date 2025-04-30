@@ -113,7 +113,7 @@ class Attention(nn.Module):
         # self attn across last dim with b, ch as batch dims, reshape to [b, ch, h, w]
         b, ch, h, w = x.shape
         # [b, h*w, ch] like in a transformer now [b,s,d] with s = h*w tokens and ch = features (D)
-        x = x.reshape(b, h * w, ch).transpose(-1, -2) # [b, ch, h * w]
+        x = x.reshape(b, h * w, ch) # [b, h * w, ch] = [b, s, d]
         q, k, v = self.wq(x), self.wk(x), self.wv(x) # [b, s, d]
 
         scale = math.sqrt(self.D)
@@ -236,6 +236,7 @@ class UNet(nn.Module): # [b, ch, h, w] noised image -> [b, ch, h, w] of error (s
 
     def forward(self, x, t): # [b, ch, h, w] -> [b, ch, h, w]
         b = x.shape[0]
+        og_x = x.clone()
         h = x
         # h = F.pad(x, (2, 2, 2, 2), mode='constant', value=0) # [b, 1, 32, 32] -> [b, 1, 32, 32]
         t_embeds = self.time_embeddings(t) # add to every UBlock 
@@ -258,7 +259,7 @@ class UNet(nn.Module): # [b, ch, h, w] noised image -> [b, ch, h, w] of error (s
             h = up_block(h, scale, shift)
             layer_counter += 1
 
-        return h # [b, ch, h, w]
+        return h + og_x # [b, ch, h, w], include long-range skip connection 
 
     pass # Ublock(down) x N -> Ublock(up) x N with middle layers having attn 
 
@@ -337,7 +338,12 @@ if __name__ == "__main__":
     if args.wandb:
         wandb.init(project="ddpm-unet", config=vars(args))
     
-    model = UNet()
+    model = UNet(
+        latent_dim=args.latent_dim,
+        ch=args.ch,
+        h=args.h,
+        w=args.w
+    )
     dataloader = torch.utils.data.DataLoader(
         torchvision.datasets.MNIST(
             root='./data',
