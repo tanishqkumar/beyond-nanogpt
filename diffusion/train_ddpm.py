@@ -2,12 +2,15 @@
 (https://arxiv.org/pdf/2006.11239) Denoising Diffusion Probabilistic Models (DDPM)
 
 A brief history of some key papers in diffusion to set the scene for this implementation 
-and section more broadly. 
+and section more broadly. Obviously I don't expect you to read any of these at all -- the whole point here 
+is that my implementation and comments should be sufficient for you to understand what's going on and 
+how things work. I myself have only read papers 1-3 here. 
 
-(0.) Papers in classical ML like [Hyvarinen, 2005] establish you can learn a data distribution, 
+(0.) Papers in classical ML like [Hyvarinen, 2005; Vincent, 2011] establish you can learn a data distribution, 
 (ie. compute its pdf/cdf up to a noramlizing constant) by just estimating the score, - grad[log p] of the 
 data distribution, and that this might be easy to do. It's not obvious (to me) 
-this is a "sufficient statistic" for a distribution, but it can be shown and is true. 
+this is a "sufficient statistic" for a distribution, but it can be shown and is true. The Vincent paper 
+shows theoretically the connection b/w score matching and denoising, important for going from DPM -> DDPM below. 
 
 1. DPM (Solh-Dickstein, ..., Ganguli, learning score directly w/ DNNs)
 
@@ -15,7 +18,8 @@ this is a "sufficient statistic" for a distribution, but it can be shown and is 
 corrupts the data, and use neural networks to directly learn the score function. Such a neural net takes 
 [b, ch, h, w] -> [b, ch, h, w] where voxel i is simply the scalar -grad[log p(x_i)]
 
-2. DDPM (Ho, this implementation, using a denoising objective to IMPLICITLY learn score)
+2. DDPM (Ho, what we do in this implementation, 
+    using a denoising objective to IMPLICITLY learn score)
 
     This paper shows you can do something much easier, but secretly equivalent to learning the score. 
 That is, simply learn to predict either the signal/noise in a corrupted image (notice they are equiv
@@ -32,12 +36,22 @@ Note: I've omitted some of Yang Song's seminal work on ODE/SDE diffusion modelin
 I haven't read it closely enough to understand it, and "diffusion models" generally just refer to vanilla 
 DDPMs (in the sense of [3]) these days. 
 
-let's implemet ddpm with a u-net with a score-matching (or equivalently, noise prediction) objective 
-same setup as in DiT but now with a convolutional backbone. Recall, we take noised_img [b, ch, h, w] -> noise_pred [b, ch, h, w]
-with (eps_true - eps_pred).mean() as loss 
-new additions here: groupnorm, new type of timeEmbeddings, Ublock and Unet with bottleneck structure compared to DiT 
+Let's implement DDPM with a U-Net architecture using a score-matching (or equivalently, noise prediction) objective.
+This follows a similar setup as in DiT (Diffusion Transformer) but now with a convolutional backbone instead of a transformer.
+Recall, our model takes noised_img [b, ch, h, w] -> noise_pred [b, ch, h, w], with MSE loss between true and predicted noise:
 
-Relation to DiT implementation: ___ 
+L = (eps_true - eps_pred)^2.mean()
+
+Key architectural components in this implementation:
+1. GroupNorm for normalization (instead of LayerNorm used in transformers)
+2. Sinusoidal time embeddings that are projected and injected into the network
+3. U-Net with a bottleneck structure featuring skip connections between encoder and decoder
+4. Downsampling and upsampling paths to capture multi-scale features
+
+Relation to DiT implementation: While DiT uses transformer blocks with self-attention for modeling the corrupted image,
+our DDPM implementation uses convolutional layers in a U-Net structure. Both approaches condition on timesteps and
+predict noise, but they differ in how they process spatial information - transformers with global attention vs.
+convolutions with local receptive fields that gradually expand through the network depth.
 
 '''
 import torchvision 
@@ -55,13 +69,17 @@ import wandb
 # hack, don't do in prod 
 ssl._create_default_https_context = ssl._create_unverified_context
 
+# we implement our own architectural components for instructional purposes, obviously you can 
+# use nn.Conv2d, nn.Attention, etc out of the box if you wanted to be concise 
+# but I think an end-to-end understanding is the goal, and reassuring to see 
+
 # this conv is more involved than in eg. our resnet implementation because we will be supporting arbitrary up/downsampling of inputs 
 # but the core idea of converting a conv into a batched matmul is the same, just with casework to interpolate upsample before conv or 
 # add a stride to downsample during the conv, conceptually not very different
 # and i'm sure i could've abstracted out some of the code to make this cleaner/shorter but nbd
 class Conv(nn.Module): # [b, ch, h, w] -> [b, ch', h', w'] where ch', h', w' depend on down/upsampling ratio 
     def __init__(self, upsample_ratio=1.0, kernel_sz=3, ch_in=1, ch_out=1): 
-        super().__init__() # TODO: we should be able to clean this code up with a helper fn to avoid repeat in fwd()
+        super().__init__() 
         self.upsample_ratio = upsample_ratio
         self.kernel_sz = kernel_sz
         self.ch_in = ch_in
@@ -86,7 +104,7 @@ class Conv(nn.Module): # [b, ch, h, w] -> [b, ch', h', w'] where ch', h', w' dep
         elif self.upsample_ratio < 1.0:
             # downsample by setting stride=1//upsample_ratio
             stride = int(1/self.upsample_ratio)
-            padding = self.kernel_sz//2 # TODO: understand stride/padding values well 
+            padding = self.kernel_sz//2 
 
             patches = F.unfold(x, kernel_size=self.kernel_sz, padding=padding, stride=stride) # [b, ch_in * k * k, np]
             kernel_flat = self.kernel_weights.reshape(self.ch_out, -1) # [ch_out, ch_in * k * k]
@@ -106,7 +124,6 @@ class Conv(nn.Module): # [b, ch, h, w] -> [b, ch', h', w'] where ch', h', w' dep
             out = out.reshape(b, self.ch_out, h, w)
             return out 
 
-# TODO: want to normalize per channel, not group
 class GroupNorm(nn.Module): 
     def __init__(self, ch=1, channels_per_group=4, eps = 1e-8): 
         super().__init__()
@@ -287,8 +304,9 @@ class UNet(nn.Module): # [b, ch, h, w] noised image -> [b, ch, h, w] of error (s
         t_embeds = self.time_embeddings(t) # add to every UBlock 
         layer_counter = 0 
 
-        # NOTE. this is an *extremely* critical part of the u-net architecture, allowing skip connetions
-        # between down_block[i] and up_block[-i]. I included a skip connection within UBlock but not across 
+        # Insturctional NOTE. this is an *extremely* critical part of the u-net architecture, 
+        # allowing skip connetionsbetween down_block[i] and up_block[-i]. 
+        # Initially, I included a skip connection within UBlock but not across 
         # the two ends of the UNet, and my loss wasn't moving at all and I spent a lot of time debugging
         # as soon as I added residuals between the two sides of the UNet (ie. up/down blocks) training 
         # became smooth and well behaved!
@@ -311,7 +329,7 @@ class UNet(nn.Module): # [b, ch, h, w] noised image -> [b, ch, h, w] of error (s
             ss_output = self.time_to_ss[layer_counter](t_embeds)  # [b, 2*ch]
             scale, shift = ss_output.chunk(2, dim=1) 
             h = up_block(h, scale, shift, residuals[-(i+1)]) 
-            # using just i not (i+1) breaks when i = 0 = -i, notice the last el is -1, hence (i+1) not i
+            # using just i not (i+1) breaks when i = 0 = -i, notice the last el is -1, hence -(i+1) not -i
             layer_counter += 1
 
         return self.output_proj(h) # [b, ch, h, w], include long-range skip connection 
@@ -387,7 +405,6 @@ def train(model, dataloader, betas, b=256, ch_data=1, h=32, w=32, epochs=10, lr=
                 print(f'Step {step}, epoch {epoch_idx+1}: Loss {loss.item()}')
 
 
-# TODO: read this carefully and rewrite from scratch, for now just use as a test for correctness
 def sample(model, betas, n_samples=10, ch_data=1, h=32, w=32):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = model.to(device)
