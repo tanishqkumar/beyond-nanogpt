@@ -27,7 +27,7 @@ ssl._create_default_https_context = ssl._create_unverified_context
 # and i'm sure i could've abstracted out some of the code to make this cleaner/shorter but nbd
 class Conv(nn.Module): # [b, ch, h, w] -> [b, ch', h', w'] where ch', h', w' depend on down/upsampling ratio 
     def __init__(self, upsample_ratio=1.0, kernel_sz=3, ch_in=1, ch_out=1): 
-        super().__init__()
+        super().__init__() # TODO: we should be able to clean this code up with a helper fn to avoid repeat in fwd()
         self.upsample_ratio = upsample_ratio
         self.kernel_sz = kernel_sz
         self.ch_in = ch_in
@@ -50,8 +50,7 @@ class Conv(nn.Module): # [b, ch, h, w] -> [b, ch', h', w'] where ch', h', w' dep
         elif self.upsample_ratio < 1.0:
             # downsample by setting stride=1//upsample_ratio
             stride = int(1/self.upsample_ratio)
-            # padding = int(1/self.upsample_ratio)
-            padding = self.kernel_sz//2
+            padding = self.kernel_sz//2 # TODO: understand stride/padding values well 
 
             patches = F.unfold(x, kernel_size=self.kernel_sz, padding=padding, stride=stride) # [b, ch_in * k * k, np]
             kernel_flat = self.kernel_weights.reshape(self.ch_out, -1) # [ch_out, ch_in * k * k]
@@ -71,7 +70,7 @@ class Conv(nn.Module): # [b, ch, h, w] -> [b, ch', h', w'] where ch', h', w' dep
             out = out.reshape(b, self.ch_out, h, w)
             return out 
 
-
+# TODO: want to normalize per channel, not group
 class GroupNorm(nn.Module): 
     def __init__(self, ch=1, channels_per_group=4, eps = 1e-8): 
         super().__init__()
@@ -234,13 +233,14 @@ class UNet(nn.Module): # [b, ch, h, w] noised image -> [b, ch, h, w] of error (s
         self.downs = nn.Sequential(
             *[UBlock(ch, up=False, bottleneck=False, k=k) for _ in range(int(nblocks//2))]
         )
+        self.output_proj = Conv(ch_in=ch, ch_out=input_channels, upsample_ratio=1.0, kernel_sz=k)
         
         self.time_to_ss = nn.ModuleList([nn.Linear(time_embed_dim, 2 * ch) for _ in range(nblocks)])
 
 
     def forward(self, x, t): # [b, ch, h, w] -> [b, ch, h, w]
         b = x.shape[0]
-        h = x
+        h = self.input_proj(x)
         # h = F.pad(x, (2, 2, 2, 2), mode='constant', value=0) # [b, 1, 32, 32] -> [b, 1, 32, 32]
         t_embeds = self.time_embeddings(t) # add to every UBlock 
         layer_counter = 0 
@@ -262,7 +262,7 @@ class UNet(nn.Module): # [b, ch, h, w] noised image -> [b, ch, h, w] of error (s
             h = up_block(h, scale, shift)
             layer_counter += 1
 
-        return h # [b, ch, h, w], include long-range skip connection 
+        return self.output_proj(h) # [b, ch, h, w], include long-range skip connection 
 
     pass # Ublock(down) x N -> Ublock(up) x N with middle layers having attn 
 
@@ -374,9 +374,9 @@ if __name__ == "__main__":
     parser.add_argument('--ch', type=int, default=1, help='Number of channels')
     parser.add_argument('--h', type=int, default=32, help='Image height')
     parser.add_argument('--w', type=int, default=32, help='Image width')
-    parser.add_argument('--batch-size', type=int, default=512, help='Training batch size')
-    parser.add_argument('--epochs', type=int, default=1000, help='Number of training epochs')
-    parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
+    parser.add_argument('--batch-size', type=int, default=256, help='Training batch size')
+    parser.add_argument('--epochs', type=int, default=250, help='Number of training epochs')
+    parser.add_argument('--lr', type=float, default=3e-3, help='Learning rate')
     parser.add_argument('--timesteps', type=int, default=500, help='Number of diffusion timesteps')
     parser.add_argument('--beta-start', type=float, default=1e-4, help='Starting beta value')
     parser.add_argument('--beta-end', type=float, default=2e-2, help='Ending beta value')
