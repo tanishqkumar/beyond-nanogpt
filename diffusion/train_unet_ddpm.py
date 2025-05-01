@@ -178,7 +178,6 @@ class TimeEmbedding(nn.Module):
             
         return self.mlp(embedding)
 
-# TODO: our down blocks should send residual connections to corresponding up blocks, key part of unet 
 class UBlock(nn.Module):
     # 2x [GN, +embeddings, SiLU, Conv] with global residual 
     def __init__(self, ch_in, up=True, bottleneck=False, k=3): # gamma, beta are both [b, ch] vectors from TimeEmbeddings that we use to steer things 
@@ -204,7 +203,7 @@ class UBlock(nn.Module):
             self.conv2 = Conv(ch_in=ch_in, ch_out=ch_in, upsample_ratio=1, kernel_sz=k)
             self.skip = nn.Conv2d(in_channels=ch_in, out_channels=ch_in, kernel_size=k, stride=2, padding=k//2)
 
-    def forward(self, x, scale, shift): # conv, norm, and skip connection, with optional self-attn
+    def forward(self, x, scale, shift, residual=None): # conv, norm, and skip connection, with optional self-attn
         b, ch, h, w = x.shape 
         og_x = x.clone() # we can't naively add a residual since out main branch changes size
         if self.up: # so this makes sure our residual changes size accordingly to match the size of the main branch 
@@ -226,11 +225,16 @@ class UBlock(nn.Module):
         if self.bottleneck: 
             h2 = self.attn(h2)
         h2 = self.conv2(h2)
-        return h2 + og_x
+        
+        if self.up: 
+            # breakpoint()
+            return h2 + og_x + residual
+        else: 
+            return h2 + og_x
         
 
 class UNet(nn.Module): # [b, ch, h, w] noised image -> [b, ch, h, w] of error (score-matching)
-    def __init__(self, nblocks=11, time_embed_dim=64, input_channels=1, ch=32, h=32, w=32, k=3): # 5 down, 1 bottleneck, 5 up 
+    def __init__(self, nblocks=11, time_embed_dim=64, ch_data=1, ch=32, h=32, w=32, k=3): # 5 down, 1 bottleneck, 5 up 
         super().__init__()
         self.nblocks = nblocks
         self.time_embed_dim = time_embed_dim
@@ -238,7 +242,8 @@ class UNet(nn.Module): # [b, ch, h, w] noised image -> [b, ch, h, w] of error (s
         self.h = h
         self.w = w
         
-        self.input_proj = Conv(ch_in=input_channels, ch_out=ch, upsample_ratio=1.0, kernel_sz=k)
+        # using more channels throughout net is an easy way to increase capacity of model linearly w/ ch
+        self.input_proj = Conv(ch_in=ch_data, ch_out=ch, upsample_ratio=1.0, kernel_sz=k)
         
         self.time_embeddings = TimeEmbedding(self.time_embed_dim)
         
@@ -249,33 +254,43 @@ class UNet(nn.Module): # [b, ch, h, w] noised image -> [b, ch, h, w] of error (s
         self.downs = nn.Sequential(
             *[UBlock(ch, up=False, bottleneck=False, k=k) for _ in range(int(nblocks//2))]
         )
-        self.output_proj = Conv(ch_in=ch, ch_out=input_channels, upsample_ratio=1.0, kernel_sz=k)
+        self.output_proj = Conv(ch_in=ch, ch_out=ch_data, upsample_ratio=1.0, kernel_sz=k)
         
         self.time_to_ss = nn.ModuleList([nn.Linear(time_embed_dim, 2 * ch) for _ in range(nblocks)])
 
-
+    # padding [b, 1, 28, 28] -> [b, 1, 32, 32] is done as batch augmentation before being passed into model 
     def forward(self, x, t): # [b, ch, h, w] -> [b, ch, h, w]
         b = x.shape[0]
         h = self.input_proj(x)
-        # h = F.pad(x, (2, 2, 2, 2), mode='constant', value=0) # [b, 1, 32, 32] -> [b, 1, 32, 32]
+
         t_embeds = self.time_embeddings(t) # add to every UBlock 
         layer_counter = 0 
 
+        # NOTE. this is an *extremely* critical part of the u-net architecture, allowing skip connetions
+        # between down_block[i] and up_block[-i]. I included a skip connection within UBlock but not across 
+        # the two ends of the UNet, and my loss wasn't moving at all and I spent a lot of time debugging
+        # as soon as I added residuals between the two sides of the UNet (ie. up/down blocks) training 
+        # became smooth and well behaved!
+        residuals = []
+
         for down_block in self.downs: 
+            # we want the INPUT to down_block[i] to be residual to be added to OUTPUT of up_block[-i] for dims to match 
+            residuals.append(h.clone()) 
             ss_output = self.time_to_ss[layer_counter](t_embeds)  # [b, 2*ch]
-            scale, shift = ss_output.chunk(2, dim=1)  # split into two [b, ch] tensors
+            scale, shift = ss_output.chunk(2, dim=1)  # split into two [b, ch] tensors across cols
             h = down_block(h, scale, shift)
             layer_counter += 1
         
         ss_output = self.time_to_ss[layer_counter](t_embeds)  # [b, 2*ch]
-        scale, shift = ss_output.chunk(2, dim=1)  # split into two [b, ch] tensors
+        scale, shift = ss_output.chunk(2, dim=1)  
         h = self.bottleneck(h, scale, shift)
         layer_counter += 1
 
-        for up_block in self.ups: 
+        for i, up_block in enumerate(self.ups): 
             ss_output = self.time_to_ss[layer_counter](t_embeds)  # [b, 2*ch]
-            scale, shift = ss_output.chunk(2, dim=1)  # split into two [b, ch] tensors
-            h = up_block(h, scale, shift)
+            scale, shift = ss_output.chunk(2, dim=1) 
+            h = up_block(h, scale, shift, residuals[-(i+1)]) 
+            # using just i not (i+1) breaks when i = 0 = -i, notice the last el is -1, hence (i+1) not i
             layer_counter += 1
 
         return self.output_proj(h) # [b, ch, h, w], include long-range skip connection 
@@ -283,12 +298,22 @@ class UNet(nn.Module): # [b, ch, h, w] noised image -> [b, ch, h, w] of error (s
     pass # Ublock(down) x N -> Ublock(up) x N with middle layers having attn 
 
 # betas is a length T 1-tensor defining noise schedule 
-def train(model, dataloader, betas, b=256, ch=1, h=32, w=32, epochs=10, lr=3e-3, print_every_steps=10, verbose=False): # inputs are both [b, ch, h, w], latter is unet(real_batch + true_noise)
-    torch.autograd.set_detect_anomaly(True)
+# TODO: our variance calculation is wrong, it can be negative for alpha[t]<1
+
+
+# inputs are both [b, ch, h, w], latter is unet(real_batch + true_noise)
+def train(model, dataloader, betas, b=256, ch_data=1, h=32, w=32, epochs=10, lr=3e-4, print_every_steps=10, verbose=False): 
+    # use this if you are having nan issues on backward pass 
+    # torch.autograd.set_detect_anomaly(True)
+    
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = model.to(device)
-    # Count and print the number of parameters in the model if verbose
+
+    # basic model telemetry one wants to see during training 
     if verbose:
+        print(f'Model is: ')
+        print(model)
+        print(f'--' * 10)
         total_params = sum(p.numel() for p in model.parameters())
         print(f"Model has {total_params:,} parameters")
     betas = betas.to(device)
@@ -316,12 +341,12 @@ def train(model, dataloader, betas, b=256, ch=1, h=32, w=32, epochs=10, lr=3e-3,
             
         for real_batch, _ in dataloader_iter: 
             real_batch = real_batch.to(device)
-            b = real_batch.shape[0] # actual bs 
+            b = real_batch.shape[0] # actual batch size in case batch is incomplete/not full 
             real_batch = F.pad(real_batch, (2, 2, 2, 2), mode='constant', value=0)  # [b, 1, 28, 28] -> [b, 1, 32, 32]
             
             
             t = torch.randint(0, T, (b,), device=device) # fresh batch of [t]
-            true_noise = torch.randn(b, ch, h, w, device=device)
+            true_noise = torch.randn(b, ch_data, h, w, device=device)
             noised_batch = sqrt_cp[t].reshape(b, 1, 1, 1) * real_batch + om_sqrt_cp[t].reshape(b, 1, 1, 1) * true_noise
 
             pred_noise = model(noised_batch, t) # needs t for time step embeddings 
@@ -341,7 +366,7 @@ def train(model, dataloader, betas, b=256, ch=1, h=32, w=32, epochs=10, lr=3e-3,
 
 
 # TODO: read this carefully and rewrite from scratch, for now just use as a test for correctness
-def sample(model, betas, n_samples=10, ch=1, h=32, w=32):
+def sample(model, betas, n_samples=10, ch_data=1, h=32, w=32):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = model.to(device)
     model.eval()
@@ -351,7 +376,7 @@ def sample(model, betas, n_samples=10, ch=1, h=32, w=32):
     alphas_cumprod = torch.cumprod(alphas, dim=0)
     
     # Start with pure noise
-    x = torch.randn(n_samples, ch, h, w, device=device)
+    x = torch.randn(n_samples, ch_data, h, w, device=device)
     
     # Reverse diffusion process
     with torch.no_grad():
@@ -387,17 +412,25 @@ def sample(model, betas, n_samples=10, ch=1, h=32, w=32):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train DDPM UNet on MNIST')
-    parser.add_argument('--ch', type=int, default=1, help='Number of channels')
+    parser.add_argument('--ch_data', type=int, default=32, help='Number of channels in data') # ch_data = 1 on MNIST
+    # we project ch_data -> ch as the first thing in the fwd pass of our model 
+    # increasing ch allows us to increase the capacity of our model fwd pass independent of data dimensions 
+    # in the same was as changing hidden_dim allows you to control transformer capacity independent of 
+    # the embed_dim you choose or the data distribution requires 
+    parser.add_argument('--ch', type=int, default=64, help='Number of channels in our latent space') 
+    
+    # we use 32 because its a power of two, even though mnist is 28 
+    # we get around this by padding mnist from 28 -> 32 in each batch of our dataloader 
     parser.add_argument('--h', type=int, default=32, help='Image height')
     parser.add_argument('--w', type=int, default=32, help='Image width')
-    parser.add_argument('--batch-size', type=int, default=256, help='Training batch size')
+    parser.add_argument('--batch_size', type=int, default=256, help='Training batch size')
     parser.add_argument('--epochs', type=int, default=250, help='Number of training epochs')
-    parser.add_argument('--lr', type=float, default=3e-3, help='Learning rate')
+    parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
     parser.add_argument('--timesteps', type=int, default=500, help='Number of diffusion timesteps')
-    parser.add_argument('--beta-start', type=float, default=1e-4, help='Starting beta value')
-    parser.add_argument('--beta-end', type=float, default=2e-2, help='Ending beta value')
+    parser.add_argument('--beta_start', type=float, default=1e-4, help='Starting beta value')
+    parser.add_argument('--beta_end', type=float, default=2e-2, help='Ending beta value')
     parser.add_argument('--schedule', type=str, default='cosine', choices=['linear', 'cosine'], help='Noise schedule type')
-    parser.add_argument('--print-every', type=int, default=10, help='Print loss every N steps')
+    parser.add_argument('--print_every', type=int, default=10, help='Print loss every N steps')
     parser.add_argument('--verbose', action='store_true', help='Print training progress')
     parser.add_argument('--wandb', action='store_true', help='Use Weights & Biases for logging')
     parser.add_argument('--sample', action='store_true', help='Generate samples after training')
@@ -410,8 +443,7 @@ if __name__ == "__main__":
     # Default to cosine noise schedule
     if args.schedule == 'linear':
         betas = torch.linspace(args.beta_start, args.beta_end, T)
-    else:  # cosine schedule
-        # Implementation of cosine schedule from Improved DDPM paper
+    else:  # cosine schedule like in improved ddpm paper (Nichol & Dharival)
         s = 0.008  # small offset to prevent singularity
         steps = torch.arange(T + 1, dtype=torch.float32) / T
         f_t = torch.cos((steps + s) / (1 + s) * math.pi / 2) ** 2
@@ -423,6 +455,7 @@ if __name__ == "__main__":
         wandb.init(project="ddpm-unet", config=vars(args))
     
     model = UNet(
+        ch_data=args.ch_data, 
         ch=args.ch,
         h=args.h,
         w=args.w
@@ -443,7 +476,7 @@ if __name__ == "__main__":
         dataloader=dataloader, 
         betas=betas, 
         b=args.batch_size, 
-        ch=args.ch, 
+        ch_data=args.ch_data, 
         h=args.h, 
         w=args.w, 
         epochs=args.epochs, 
