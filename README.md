@@ -113,7 +113,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 
 ### Key Diffusion Techniques 
 - [x] Image generation with a GAN `diffusion/train_gan.py`
-- [ ] Image generation wtih a U‑Net via DDPM on CIFAR‑10
+- [x] Image generation with a U‑Net via DDPM `diffusion/train_ddpm.py` 
 - [ ] Implement DDIM for faster sampling
 - [ ] Add classifier-free guidance for conditional control 
 - [ ] Implement discrete diffusion for language modeling 
