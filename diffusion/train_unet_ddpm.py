@@ -297,10 +297,10 @@ class UNet(nn.Module): # [b, ch, h, w] noised image -> [b, ch, h, w] of error (s
 
     pass # Ublock(down) x N -> Ublock(up) x N with middle layers having attn 
 
-# betas is a length T 1-tensor defining noise schedule 
-# TODO: our variance calculation is wrong, it can be negative for alpha[t]<1
 
-
+# betas is a length T 1-tensor defining noise schedule, where betas[t] is incremental noise to add at timestep t
+# in practice we can mathematically derive TOTAL noise to add to x_0 to get x_t 
+# from this, and we precompupte that to be able to avoid incremental noising
 # inputs are both [b, ch, h, w], latter is unet(real_batch + true_noise)
 def train(model, dataloader, betas, b=256, ch_data=1, h=32, w=32, epochs=10, lr=3e-4, print_every_steps=10, verbose=False): 
     # use this if you are having nan issues on backward pass 
@@ -320,12 +320,14 @@ def train(model, dataloader, betas, b=256, ch_data=1, h=32, w=32, epochs=10, lr=
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
     opt.zero_grad()
 
-    # betas is noise schedule, so increasing noise 
-    # alphas is 1- betas, so decreasing
-    # cumprod makes it decrease even faster
+    # beta[t] is the incremental noise we add at step t to the signal 
+    # the goal is to keep total variance the same but reduce signal/noise throughout t in fwd process
+    # so we want x_t signal to have var = 1-betas[t], so we define alphas = 1-betas
+    # and then want signal[t] = sqrt(prod_{i=0}^t alphas[i]) * x_0
+    # and noise[t] = sqrt(prod_{i=0}^t (1-alphas[i])) * z where z~N(0,1) which thus gives 
     # x_t = torch.sqrt(alphas_cumprod[t]) * x_0 + torch.sqrt(1 - alphas_cumprod[t]) * noise
     T = betas.shape[0]
-    alphas = 1 - betas # variance of noise added x_t -> x_{t+1}
+    alphas = 1 - betas 
     alphas_cumprod = torch.cumprod(alphas, dim=0)
     sqrt_cp = torch.sqrt(alphas_cumprod)  # [T] 
     om_sqrt_cp = torch.sqrt(1 - alphas_cumprod)  # [T] 
@@ -350,7 +352,6 @@ def train(model, dataloader, betas, b=256, ch_data=1, h=32, w=32, epochs=10, lr=
             noised_batch = sqrt_cp[t].reshape(b, 1, 1, 1) * real_batch + om_sqrt_cp[t].reshape(b, 1, 1, 1) * true_noise
 
             pred_noise = model(noised_batch, t) # needs t for time step embeddings 
-            # breakpoint()
             loss = F.mse_loss(true_noise, pred_noise)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -365,7 +366,7 @@ def train(model, dataloader, betas, b=256, ch_data=1, h=32, w=32, epochs=10, lr=
                 print(f'Step {step}, epoch {epoch_idx+1}: Loss {loss.item()}')
 
 
-# TODO: read this carefully and rewrite from scratch, for now just use as a test for correctness
+
 def sample(model, betas, n_samples=10, ch_data=1, h=32, w=32):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = model.to(device)
@@ -375,10 +376,10 @@ def sample(model, betas, n_samples=10, ch_data=1, h=32, w=32):
     alphas = 1 - betas
     alphas_cumprod = torch.cumprod(alphas, dim=0)
     
-    # Start with pure noise
+    # start w/ noise 
     x = torch.randn(n_samples, ch_data, h, w, device=device)
     
-    # Reverse diffusion process
+    # run diffusion in reverse
     with torch.no_grad():
         for t in reversed(range(T)):
             t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
@@ -390,29 +391,37 @@ def sample(model, betas, n_samples=10, ch_data=1, h=32, w=32):
             if t > 0:
                 noise = torch.randn_like(x)
                 beta_t = betas[t]
-                variance = beta_t * (1. - alpha_cumprod_t / (alpha_cumprod_t * alpha_t))
-                variance = torch.clamp(variance, min=1e-20)
-                noise = noise * torch.sqrt(variance)
+                alpha_cumprod_prev = alphas_cumprod[t-1]
+                variance = beta_t * (1.0 - alpha_cumprod_prev) / (1.0 - alpha_cumprod_t)
+                noise = torch.randn_like(x) * torch.sqrt(variance.clamp(min=1e-20))
             else:
                 noise = 0
             
-            # Update x using the reverse process formula
+            # this formula is not obvious and needs to be worked out with some algebra as is done in the DDPM 
+            # series of papers. I don't think this is conceptually that important, it follows with some basic math 
+            # from the construction of the fwd process + training objective, and is the "obvious" thing to do 
+            # ie. predict noise, subtract from our x = randn() tensor to get some more signal in there, and repeat 
+            # with approppriate rescaling keeping in mind the betas we used in the forward process
+
+            # I find this reverse process intellectually quite beautiful, though: we are sculptors chiselling away 
+            # the gaussianity so ubiquitous in the universe to reveal an underlying signal (data distribution)
+            # that is uniquely human and hidden in plain sight...
             x = (1 / torch.sqrt(alpha_t)) * (x - ((1 - alpha_t) / torch.sqrt(1 - alpha_cumprod_t)) * predicted_noise) + noise
     
-    # Denormalize and clip to [0, 1]
+    # network outputs roughly in [-1, 1], img display via PIL needs [0,1] so just linearly shift things 
     x = torch.clamp(x, -1, 1)
     x = (x + 1) / 2
     
-    # Remove padding (if needed)
+    # remove padding, this is hardcoded for mnist since we augmented data by padding during training 
     if h == 32 and w == 32:
-        x = x[:, :, 2:-2, 2:-2]  # Remove padding to get back to 28x28
+        x = x[:, :, 2:-2, 2:-2]  
     
     return x
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train DDPM UNet on MNIST')
-    parser.add_argument('--ch_data', type=int, default=32, help='Number of channels in data') # ch_data = 1 on MNIST
+    parser.add_argument('--ch_data', type=int, default=1, help='Number of channels in data') # ch_data = 1 on MNIST
     # we project ch_data -> ch as the first thing in the fwd pass of our model 
     # increasing ch allows us to increase the capacity of our model fwd pass independent of data dimensions 
     # in the same was as changing hidden_dim allows you to control transformer capacity independent of 
@@ -430,7 +439,7 @@ if __name__ == "__main__":
     parser.add_argument('--beta_start', type=float, default=1e-4, help='Starting beta value')
     parser.add_argument('--beta_end', type=float, default=2e-2, help='Ending beta value')
     parser.add_argument('--schedule', type=str, default='cosine', choices=['linear', 'cosine'], help='Noise schedule type')
-    parser.add_argument('--print_every', type=int, default=10, help='Print loss every N steps')
+    parser.add_argument('--print_every', type=int, default=100, help='Print loss every N steps')
     parser.add_argument('--verbose', action='store_true', help='Print training progress')
     parser.add_argument('--wandb', action='store_true', help='Use Weights & Biases for logging')
     parser.add_argument('--sample', action='store_true', help='Generate samples after training')
@@ -487,7 +496,7 @@ if __name__ == "__main__":
     
     if args.sample:
         print("Generating samples...")
-        samples = sample(model, betas, n_samples=10, ch=args.ch, h=args.h, w=args.w)
+        samples = sample(model, betas, n_samples=10, ch_data=args.ch_data, h=args.h, w=args.w)
         
         # Create a grid of images
         grid = torchvision.utils.make_grid(samples, nrow=5)
