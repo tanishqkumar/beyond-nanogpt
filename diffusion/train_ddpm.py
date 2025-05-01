@@ -1,15 +1,36 @@
 '''
-TODO: fill this out 
-
 (https://arxiv.org/pdf/2006.11239) Denoising Diffusion Probabilistic Models (DDPM)
 
-(0.) Papers introducing the notion of score matching in ML
+A brief history of some key papers in diffusion to set the scene for this implementation 
+and section more broadly. 
 
-1. DPM (Ganguli, learning score directly w/ DNNs)
+(0.) Papers in classical ML like [Hyvarinen, 2005] establish you can learn a data distribution, 
+(ie. compute its pdf/cdf up to a noramlizing constant) by just estimating the score, - grad[log p] of the 
+data distribution, and that this might be easy to do. It's not obvious (to me) 
+this is a "sufficient statistic" for a distribution, but it can be shown and is true. 
+
+1. DPM (Solh-Dickstein, ..., Ganguli, learning score directly w/ DNNs)
+
+    This is the beginning of diffusion in deep learning. These guys introduce the notion of a forward noising process that 
+corrupts the data, and use neural networks to directly learn the score function. Such a neural net takes 
+[b, ch, h, w] -> [b, ch, h, w] where voxel i is simply the scalar -grad[log p(x_i)]
 
 2. DDPM (Ho, this implementation, using a denoising objective to IMPLICITLY learn score)
 
-3. Improved DDPM 
+    This paper shows you can do something much easier, but secretly equivalent to learning the score. 
+That is, simply learn to predict either the signal/noise in a corrupted image (notice they are equiv
+as you can get one once you know the other). So they train a neural network to take 
+noised_image -> noise, and this turns out to be much easier and stronger to train. 
+
+3. Improved DDPM (Nichol & Dhariwal)
+
+    These guys make improvements to the [2] training pipeline by tweaking the objective inspired by 
+variational models as well as introducing tricks like new noise schedules that empirically improve training. 
+Conceptually not too different from DDPMs. 
+
+Note: I've omitted some of Yang Song's seminal work on ODE/SDE diffusion modeling, mostly because 
+I haven't read it closely enough to understand it, and "diffusion models" generally just refer to vanilla 
+DDPMs (in the sense of [3]) these days. 
 
 let's implemet ddpm with a u-net with a score-matching (or equivalently, noise prediction) objective 
 same setup as in DiT but now with a convolutional backbone. Recall, we take noised_img [b, ch, h, w] -> noise_pred [b, ch, h, w]
