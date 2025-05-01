@@ -1,10 +1,23 @@
 '''
+TODO: fill this out 
+
 (https://arxiv.org/pdf/2006.11239) Denoising Diffusion Probabilistic Models (DDPM)
+
+(0.) Papers introducing the notion of score matching in ML
+
+1. DPM (Ganguli, learning score directly w/ DNNs)
+
+2. DDPM (Ho, this implementation, using a denoising objective to IMPLICITLY learn score)
+
+3. Improved DDPM 
 
 let's implemet ddpm with a u-net with a score-matching (or equivalently, noise prediction) objective 
 same setup as in DiT but now with a convolutional backbone. Recall, we take noised_img [b, ch, h, w] -> noise_pred [b, ch, h, w]
 with (eps_true - eps_pred).mean() as loss 
 new additions here: groupnorm, new type of timeEmbeddings, Ublock and Unet with bottleneck structure compared to DiT 
+
+Relation to DiT implementation: ___ 
+
 '''
 import torchvision 
 import math 
@@ -33,7 +46,9 @@ class Conv(nn.Module): # [b, ch, h, w] -> [b, ch', h', w'] where ch', h', w' dep
         self.ch_in = ch_in
         self.ch_out = ch_out
         self.kernel_weights = torch.nn.Parameter(torch.randn(ch_out, ch_in, kernel_sz, kernel_sz))
-        nn.init.kaiming_normal_(self.kernel_weights, nonlinearity='relu') # make sure they're right scale
+        nn.init.kaiming_normal_(self.kernel_weights, nonlinearity='relu') 
+        # conv kernels are basically all our params, so we make sure they're initialized correctly 
+        
 
     def forward(self, x): # residual conv 
         if self.upsample_ratio > 1.0:
@@ -163,6 +178,7 @@ class TimeEmbedding(nn.Module):
             
         return self.mlp(embedding)
 
+# TODO: our down blocks should send residual connections to corresponding up blocks, key part of unet 
 class UBlock(nn.Module):
     # 2x [GN, +embeddings, SiLU, Conv] with global residual 
     def __init__(self, ch_in, up=True, bottleneck=False, k=3): # gamma, beta are both [b, ch] vectors from TimeEmbeddings that we use to steer things 
