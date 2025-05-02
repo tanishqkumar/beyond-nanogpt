@@ -42,7 +42,7 @@ class Encoder(nn.Module): # [b, ch, h, w] -> [b, d]
         return self.encoder_mlp(latents)
 
 
-class Decoder(nn.Module): # [b, ch, h, w] -> [b, d]
+class Decoder(nn.Module): # [b, d] -> [b, ch * h * w] -> [b, ch, h, ]
     def __init__(self, ch=1, h=28, w=28, d=32): 
         super().__init__()
         self.ch = ch
