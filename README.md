@@ -87,7 +87,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
       - [x] Vanilla Actor-Critic (A1C) `train_a1c.py`
       - [ ] Asynchronous Advantage Actor-Critic (A3C)
       - [ ] Synchronous Advantage Actor-Critic (A2C)
-      - [ ] HalfCheetah‑v3 with SAC (off-policy)
+      - [ ] Soft Actor-Critic (off-policy)
       - [ ] IMPALA (distributed RL)
    - Model-based RL 
       - [ ] PETS 
@@ -100,14 +100,6 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
    - [ ] GRPO for reasoning: outcome reward on MATH
    - [ ] Distributed RLAIF for multi-tool use
 
-### MLSys 
-- [ ] Communication collectives (scatter, gather, ring/tree allreduce)
-- [ ] Minimal FSDP re-implementation (data and tensor parallelism)
-- [ ] Ring Attention
-- [ ] Flash Attention
-- [ ] Paged Attention 
-- [ ] 4-bit weight-only quantization
-
 ### Generative Modeling
 
 - [x] Image generation with a GAN `diffusion/train_gan.py`
@@ -117,6 +109,15 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [ ] Classifier-based and classifier-free guidance
 - [ ] Discrete diffusion for language modeling 
 
+### MLSys 
+- [ ] Communication collectives (scatter, gather, ring/tree allreduce)
+- [ ] Minimal FSDP re-implementation (data and tensor parallelism)
+- [ ] Ring Attention
+- [ ] Flash Attention
+- [ ] Paged Attention 
+- [ ] 4-bit weight-only quantization
+
+[Coming Soon]: RAG, Agents, Multimodality, Robotics. 
 
 ---
 
