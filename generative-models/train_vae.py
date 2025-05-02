@@ -1,5 +1,32 @@
 '''
-TODO: write vae intro and intuition pump
+(https://arxiv.org/pdf/1312.6114) Auto-Encoding Variational Bayes. 
+Here's a quick, informal intro to our Variational Autoencoder (VAE) that builds on the 
+vanilla autoencoder you saw in train_autoencoder.py. I will give the first introduction to VAEs
+to my knowledge that DOES NOT talk about VARIATIONAL INFERENCE AND ELBO AT ALL. In my opinion, 
+it can be explained clearly without those concepts even though obviously you need to understand those 
+to do research around generative models. Here's how to get from an auto-encoder to VAE in three steps. 
+
+1) Notice if we pass in z~N(0,1) to an autoencoder, we'll get garbage since there's no reason the decoder 
+expects to see random normal vectors, the encoder may have learned something totally different. 
+Thus including a KL term to keep latents near N(0,1) encourages latents fed in from encoder to be closer to 
+N(0,1) which helps us use the decoder for generation. 
+
+2) Why does the encoder output the [mean, std] of a distribution now where we directly outputted latents before? 
+Answer: because outputting latents only (as in vanilla AE) means decoder can simply learn to map those specific 
+vectors to their original images (ie. "memorize") so when you give it new z~N(0,1) to generate, you get garbage 
+(esp since the specific z drawn will be diff each time you sample). Instead, make sure during training it gets used to 
+taking *distributions* to outputted images, so we can give it many z, z' ~N(0,1) at inference and we'll get similar 
+outputted/generated images. Using sampling during the forward isn't problematic for autodiff for the below reason. 
+
+3) What is this "reparameterization trick" math jargon/garbage? Ignore the jargon IMO. It's 
+merely observing we want to take encoder gradients wrt [mean, std] and can't do so if we write 
+x = dist.sample(mean, std), so instead we just write x = N(0,1).sample() * std + mean 
+where the key idea is that we don't need to diff through  N(0,1).sample() when we compute x that way 
+since it's treated as a constant during autograd and std/mean are "on the outside." This is what allows 
+sample() to not break the autograd graph and do backward() as usual. 
+
+These three tweaks let us go from reconstructing existing data to being able to *learn a distribution* and thus 
+generate samples. 
 '''
 import argparse
 import torch
@@ -14,8 +41,6 @@ import ssl
     
 # hack
 ssl._create_default_https_context = ssl._create_unverified_context
-
-# changes: output mean/var instead, fwd by Dec[sample[enc(x)]], add KL term to training loss
 
 class Encoder(nn.Module): # [b, ch, h, w] -> [b, d]
     def __init__(self, ch=1, h=28, w=28, d=32, mult=4, nlayers=0): 
