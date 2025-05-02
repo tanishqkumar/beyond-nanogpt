@@ -61,7 +61,7 @@ class Decoder(nn.Module): # [b, ch, h, w] -> [b, d]
 def train(ch=1, h=28, w=28, d=32, batch_sz=32, nepochs=100, lr=1e-3, verbose=False):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    # setup dataset/loader
+    # this is a very vanilla standard training loop
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.5,), (0.5,))
@@ -73,17 +73,14 @@ def train(ch=1, h=28, w=28, d=32, batch_sz=32, nepochs=100, lr=1e-3, verbose=Fal
     train_loader = DataLoader(train_dataset, batch_size=batch_sz, shuffle=True, num_workers=1)
     test_loader = DataLoader(test_dataset, batch_size=batch_sz, shuffle=False, num_workers=1)
     
-    # create model
+    # make our ae
     encoder = Encoder(ch=ch, h=h, w=w, d=d).to(device)
     decoder = Decoder(ch=ch, h=h, w=w, d=d).to(device)
     autoencoder = nn.Sequential(encoder, decoder)
     
-    # setup optimizer
     optimizer = torch.optim.Adam(autoencoder.parameters(), lr=lr)
     
-    # training loop
     for epoch in tqdm(range(nepochs)):
-        # training phase
         autoencoder.train()
         total_train_loss = 0
         for batch, _ in train_loader:
@@ -100,7 +97,7 @@ def train(ch=1, h=28, w=28, d=32, batch_sz=32, nepochs=100, lr=1e-3, verbose=Fal
         
         avg_train_loss = total_train_loss / len(train_loader)
         
-        # evaluation phase
+        # evals every so often 
         autoencoder.eval()
         total_test_loss = 0
         with torch.no_grad():
