@@ -65,18 +65,15 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [x] Cross Attention `attention-variants/cross_attention.ipynb`
 - [ ] Multi-Latent Attention
 
-### Transformer Training
+### Language Modeling
 
 - [x] Optimized Dataloading `fast-transformer-training/dataloaders` 
    - [x] Producer-consumer asynchronous dataloading 
    - [x] Sequence packing 
 - [x] Byte-Pair Encoding `fast-transformer-training/bpe.ipynb`
-- [ ] RoPE embeddings
-
-### Transformer Inference
-
 - [x] KV Caching `fast-transformer-inference/KV_cache.ipynb` 
 - [x] Speculative Decoding `fast-transformer-inference/speculative_decoding.ipynb`
+- [ ] RoPE embeddings
 - [ ] Multi-token Prediction
 - [ ] Continuous Batching 
 
