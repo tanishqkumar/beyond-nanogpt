@@ -4,15 +4,16 @@
 
 
 **Beyond-NanoGPT** is the minimal and educational repo aiming to **bridge between nanoGPT and research-level deep learning.** 
-This repo includes annotated and from-scratch implementations of tens of crucial modern techniques in frontier deep learning, aiming to help newcomers learn enough practical deep learning to start running experiments and thus contributing to modern research. 
+This repo includes annotated and from-scratch implementations of tens of crucial modern techniques in frontier deep learning, aiming to help newcomers learn enough to start running experiments of their own. 
 
-It implements everything from inference techniques like KV caching and speculative decoding to 
-architectures like vision and diffusion transformers to attention variants like linear or sparse attention. *Thousands of lines of 
-self-contained and hand-written PyTorch to help you upskill your technical fundamentals. Because everything is 
-implemented by-hand, the code comments explain the especially subtle
-details often glossed over both in papers and production codebases.*
+It implements everything from KV caching and speculative decoding to 
+architectures like vision transformers and MLP-mixers to attention variants like linear or sparse attention
+to generative models like VAEs and diffusion transformers.  
 
-Checked boxes denote currently implemented and ready to be run. Others are either coming soon or in progress.
+**Because everything is implemented by-hand, the code comments explain the especially subtle
+details often glossed over both in papers and production codebases.**
+
+If this codebase helped you, please share it and give it a star!
 
 ## Quickstart
 1. **Clone the Repo:**
