@@ -8,10 +8,7 @@ This repo includes annotated and from-scratch implementations of tens of crucial
 
 It implements everything from KV caching and speculative decoding to 
 architectures like vision transformers and MLP-mixers to attention variants like linear or sparse attention
-to generative models like VAEs and diffusion transformers.  
-
-**Because everything is implemented by-hand, the code comments explain the especially subtle
-details often glossed over both in papers and production codebases.**
+to generative models like VAEs and diffusion transformers.  **Because everything is implemented by-hand, the code comments explain the especially subtle details often glossed over both in papers and production codebases.**
 
 If this codebase helped you, please share it and give it a star!
 
