@@ -44,7 +44,7 @@ If this codebase helped you, please share it and give it a star!
 ## Current Implementations and Roadmap
 
 ### Architectures
-- [x] Vanilla causal Transformer for language modeling (starting point) `fast-transformer-training/train_naive.py`
+- [x] Vanilla causal Transformer for language modeling (starting point) `language-models/train_naive.py`
 - [x] Vision Transformer (ViT) `architectures/train_vit.py`
 - [x] Diffusion Transformer (DiT) `architectures/train_dit.py`
 - [x] RNN for language modeling `architectures/train_rnn.py` 
@@ -65,12 +65,12 @@ If this codebase helped you, please share it and give it a star!
 
 ### Language Models
 
-- [x] Optimized Dataloading `fast-transformer-training/dataloaders` 
+- [x] Optimized Dataloading `language-models/dataloaders` 
    - [x] Producer-consumer asynchronous dataloading 
    - [x] Sequence packing 
-- [x] Byte-Pair Encoding `fast-transformer-training/bpe.ipynb`
-- [x] KV Caching `fast-transformer-inference/KV_cache.ipynb` 
-- [x] Speculative Decoding `fast-transformer-inference/speculative_decoding.ipynb`
+- [x] Byte-Pair Encoding `language-models/bpe.ipynb`
+- [x] KV Caching `language-models/KV_cache.ipynb` 
+- [x] Speculative Decoding `language-models/speculative_decoding.ipynb`
 - [ ] RoPE embeddings
 - [ ] Multi-token Prediction
 - [ ] Continuous Batching 
@@ -100,10 +100,10 @@ If this codebase helped you, please share it and give it a star!
 
 ### Generative Models
 
-- [x] Image generation with a GAN `diffusion/train_gan.py`
-- [x] Image generation with a VAE `diffusion/train_vae.py`
-   - [x] Train an autoencoder for reconstruction `diffusion/train_autoencoder.py` 
-- [x] Image generation with a U‑Net via DDPM `diffusion/train_ddpm.py` 
+- [x] Image generation with a GAN `generative-models/train_gan.py`
+- [x] Image generation with a VAE `generative-models/train_vae.py`
+   - [x] Train an autoencoder for reconstruction `generative-models/train_autoencoder.py` 
+- [x] Image generation with a U‑Net via DDPM `generative-models/train_ddpm.py` 
 - [ ] Classifier-based and classifier-free guidance
 - [ ] Discrete diffusion for language modeling 
 
