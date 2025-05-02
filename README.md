@@ -66,7 +66,7 @@ If this codebase helped you, please share it and give it a star!
 - [x] Cross Attention `attention-variants/cross_attention.ipynb`
 - [ ] Multi-Latent Attention
 
-### Language Modeling
+### Language Models
 
 - [x] Optimized Dataloading `fast-transformer-training/dataloaders` 
    - [x] Producer-consumer asynchronous dataloading 
@@ -101,7 +101,7 @@ If this codebase helped you, please share it and give it a star!
    - [ ] GRPO for reasoning: outcome reward on MATH
    - [ ] Distributed RLAIF for multi-tool use
 
-### Generative Modeling
+### Generative Models
 
 - [x] Image generation with a GAN `diffusion/train_gan.py`
 - [x] Image generation with a VAE `diffusion/train_vae.py`
