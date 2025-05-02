@@ -111,7 +111,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 ### Generative Modeling
 
 - [x] Image generation with a GAN `diffusion/train_gan.py`
-- [ ] Image generation with a VAE `diffusion/train_vae.py`
+- [x] Image generation with a VAE `diffusion/train_vae.py`
    - [x] Train an autoencoder for reconstruction `diffusion/train_autoencoder.py` 
 - [x] Image generation with a U‑Net via DDPM `diffusion/train_ddpm.py` 
 - [ ] Classifier-based and classifier-free guidance
