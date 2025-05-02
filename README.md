@@ -45,7 +45,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 
 ## Current Implementations and Roadmap
 
-### Key Architectures
+### Architectures
 - [x] Vanilla causal Transformer for language modeling (starting point) `fast-transformer-training/train_naive.py`
 - [x] Vision Transformer (ViT) `architectures/train_vit.py`
 - [x] Diffusion Transformer (DiT) `architectures/train_dit.py`
@@ -56,7 +56,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [ ] MoE
 - [ ] Decision Transformer
 
-### Key Attention Variants
+### Attention Variants
 - [x] Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` 
 - [x] Multi-head Self-Attention `attention-variants/mhsa.ipynb` 
 - [x] Grouped-Query Attention `attention-variants/gqa.ipynb`
@@ -65,7 +65,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [x] Cross Attention `attention-variants/cross_attention.ipynb`
 - [ ] Multi-Latent Attention
 
-### Key Transformer Training Techniques
+### Transformer Training
 
 - [x] Optimized Dataloading `fast-transformer-training/dataloaders` 
    - [x] Producer-consumer asynchronous dataloading 
@@ -73,14 +73,14 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [x] Byte-Pair Encoding `fast-transformer-training/bpe.ipynb`
 - [ ] RoPE embeddings
 
-### Key Transformer Inference Techniques
+### Transformer Inference
 
 - [x] KV Caching `fast-transformer-inference/KV_cache.ipynb` 
 - [x] Speculative Decoding `fast-transformer-inference/speculative_decoding.ipynb`
 - [ ] Multi-token Prediction
 - [ ] Continuous Batching 
 
-### Key RL Techniques 
+### Reinforcement Learning
 - Classical RL:
    - Fundamentals `rl/cartpole`
       - [x] DQN `train_dqn.py`
@@ -103,7 +103,7 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
    - [ ] GRPO for reasoning: outcome reward on MATH
    - [ ] Distributed RLAIF for multi-tool use
 
-### Key MLSys Techniques 
+### MLSys 
 - [ ] Communication collectives (scatter, gather, ring/tree allreduce)
 - [ ] Minimal FSDP re-implementation (data and tensor parallelism)
 - [ ] Ring Attention
@@ -111,13 +111,15 @@ Checked boxes denote currently implemented and ready to be run. Others are eithe
 - [ ] Paged Attention 
 - [ ] 4-bit weight-only quantization
 
-### Key Diffusion Techniques 
+### Generative Modeling
+
 - [x] Image generation with a GAN `diffusion/train_gan.py`
+- [ ] Image generation with a VAE `diffusion/train_vae.py`
+   - [x] Train an autoencoder for reconstruction `diffusion/train_autoencoder.py` 
 - [x] Image generation with a U‑Net via DDPM `diffusion/train_ddpm.py` 
-- [ ] Implement DDIM for faster sampling
-- [ ] Add classifier-free guidance for conditional control 
-- [ ] Implement discrete diffusion for language modeling 
-- [ ] Implement flow matching and compare to diffusion
+- [ ] Classifier-based and classifier-free guidance
+- [ ] Discrete diffusion for language modeling 
+
 
 ---
 
