@@ -15,7 +15,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 
 <p align="center">
   <span style="display: inline-block; text-align: center; margin: 0 10px;">
-    <img src="https://github.com/user-attachments/assets/e49fad0a-f51b-4771-a59a-f5d6a969f8ed" style="width: 600px; height: auto;" />
+    <img src="https://github.com/user-attachments/assets/e49fad0a-f51b-4771-a59a-f5d6a969f8ed" />
     <div style="text-align: center; max-width: 600px; margin-top: 8px;">
       <sub>
         A glimpse of some plots from the repository scripts. <br />
