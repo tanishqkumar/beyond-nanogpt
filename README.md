@@ -10,7 +10,7 @@ It implements everything from KV caching and speculative decoding to
 architectures like vision transformers and MLP-mixers to attention variants like linear or sparse attention
 to generative models like VAEs and diffusion transformers.  **Because everything is implemented by-hand, the code comments explain the especially subtle details often glossed over both in papers and production codebases.**
 
-If this codebase helped you, please share it and give it a star!
+[Add three plots from linear attention profiling, DDPM generations, PPO rewards] in one line 
 
 ## Quickstart
 1. **Clone the Repo:**
@@ -39,7 +39,8 @@ If this codebase helped you, please share it and give it a star!
    on subtleties I found tricky to implement. 
    Arguments are specified at the bottom of each file. 
    Jupyter notebooks are meant to be stepped through.
-   
+
+
 
 ## Current Implementations and Roadmap
 
@@ -129,5 +130,17 @@ budget (this works surprisingly well, people are very generous).
 - Feel free to email me at [tanishq@stanford.edu](mailto:tanishq@stanford.edu) with feedback, implementation/feature requests, 
 and to raise any bugs as GitHub issues. I am committing to implementing new techniques people want over the next month, and 
 welcome contributions or bug fixes by others. 
+
+If this codebase helped you, please share it and give it a star! You can cite the repository 
+in your work as follows. 
+
+```bibtex
+@article{beyond-nanogpt,
+  title  = {Beyond-NanoGPT: From LLM Beginner to AI Researcher},
+  author = {Tanishq Kumar},
+  year   = {2025},
+  url    = {https://github.com/tanishqkumar/beyond-nanogpt},
+}
+```
 
 **Happy coding, and may your gradients never vanish!**
