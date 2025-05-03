@@ -1,32 +1,34 @@
 ## Beyond NanoGPT: Go From LLM Beginner to AI Researcher!
 
-![image](https://github.com/user-attachments/assets/b2943618-d5ed-468d-b792-d1cf4e0d6c6a)
-
+<p align="center">
+  <span style="display: inline-block; text-align: center; margin: 0 10px;">
+    <img src="https://github.com/user-attachments/assets/b2943618-d5ed-468d-b792-d1cf4e0d6c6a" style="width: 350px; height: auto;" />
+  </span>
+</p>
 
 **Beyond-NanoGPT** is the minimal and educational repo aiming to **bridge between nanoGPT and research-level deep learning.** 
-This repo includes annotated and from-scratch implementations of tens of crucial modern techniques in frontier deep learning, aiming to help newcomers learn enough to start running experiments of their own. 
+This repo includes annotated and from-scratch implementations of almost 100 crucial modern techniques in frontier deep learning, aiming to help newcomers learn enough to start running experiments of their own. 
 
-It implements everything from KV caching and speculative decoding to 
+The repo implements everything from KV caching and speculative decoding to 
 architectures like vision transformers and MLP-mixers to attention variants like linear or sparse attention
 to generative models like VAEs and denoising diffusion models.  **Because everything is implemented by-hand, the code comments explain the especially subtle details often glossed over both in papers and production codebases.**
 
 <p align="center">
   <span style="display: inline-block; text-align: center; margin: 0 10px;">
-    <img src="https://github.com/user-attachments/assets/238d3971-e688-4d56-be7a-0c4abad25264" style="width: 200px; height: auto;" />
-    <div><sub>Linear Attention</sub></div>
-  </span>
-
-  <span style="display: inline-block; text-align: center; margin: 0 10px;">
-    <img src="https://github.com/user-attachments/assets/ca2e5d87-de9c-4629-a26d-5766666c4884" style="width: 200px; height: auto;" />
-    <div><sub>U-Net Samples</sub></div>
-  </span>
-
-  <span style="display: inline-block; text-align: center; margin: 0 10px;">
-    <img src="https://github.com/user-attachments/assets/29edc27a-f15e-4310-93ea-d33095f93d93" style="width: 200px; height: auto;" />
-    <div><sub>PPO Training Progress</sub></div>
+    <img src="https://github.com/user-attachments/assets/e49fad0a-f51b-4771-a59a-f5d6a969f8ed" style="width: 600px; height: auto;" />
+    <div style="text-align: center; max-width: 600px; margin-top: 8px;">
+      <sub>
+        A glimpse of some plots from the repository scripts. <br />
+        <b>(Left)</b> Language model speedups from 
+        <code>attention-variants/linear_attention.ipynb</code>,<br />
+        <b>(Center)</b> Samples from a small denoising diffusion model trained on MNIST in 
+        <code>generative-models/train_ddpm.py</code>,<br />
+        <b>(Right)</b> Reward over time for a small MLP policy on CartPole in 
+        <code>rl/cartpole/train_ppo.py</code>.
+      </sub>
+    </div>
   </span>
 </p>
-
 
 ## Quickstart
 1. **Clone the Repo:**
