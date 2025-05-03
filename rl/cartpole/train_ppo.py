@@ -33,6 +33,8 @@ import torch.nn.functional as F
 from tqdm import tqdm 
 import argparse
 import wandb
+import numpy as np
+import matplotlib.pyplot as plt
 
 env = gym.make('CartPole-v1')
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -109,7 +111,49 @@ def loss_fn(policy_net, value_net,
     # return full obj, a linear combo of the three loss terms
     return policy_loss + vf_coef * value_loss - ent_coef * entropy_loss
 
-def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, hidden_dim=128, early_stop=False, wandb_log=False, verbose=False, NSTATES=4, ngrads_per_step=3):
+def save_plot(rewards_history, plot_name='ppo_training_progress.png'):
+    plt.rcParams.update({
+        'font.family': 'sans-serif', 
+        'font.size': 14,
+        'axes.labelsize': 16,
+        'axes.titlesize': 18,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+        'legend.fontsize': 12,
+        'axes.spines.top': False,
+        'axes.spines.right': False,
+        'axes.grid': True,
+        'grid.alpha': 0.3,
+        'grid.linestyle': '--'
+    })
+
+    window_size = 5
+    smoothed_rewards = np.convolve(rewards_history, np.ones(window_size)/window_size, mode='valid')
+    
+    plt.figure(figsize=(10, 6), dpi=300)
+    
+    plt.plot(smoothed_rewards, label='Smoothed Reward',
+            color='#1f77b4', linewidth=4.0)
+    
+    plt.plot(rewards_history, label='Raw Reward',
+            color='#1f77b4', alpha=0.15, linewidth=4.0)
+    
+    plt.xlabel('Training Step', fontweight='bold')
+    plt.ylabel('Average Episode Length', fontweight='bold') 
+    plt.title('PPO Training Progress on CartPole',
+             fontweight='bold', pad=15)
+    
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
+    
+    plt.tight_layout()
+    
+    plt.savefig(plot_name,
+               bbox_inches='tight',
+               transparent=False,
+               dpi=300)
+    plt.close()
+
+def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, hidden_dim=128, early_stop=False, wandb_log=False, verbose=False, NSTATES=4, ngrads_per_step=3, plot=False):
     policy = PolicyNet(hidden_dim=hidden_dim).to(device)
     value_net = ValueNet(hidden_dim=hidden_dim).to(device)
     opt_pol = torch.optim.AdamW(policy.parameters(), lr=lr)
@@ -117,6 +161,9 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, hi
     opt_pol.zero_grad(); opt_val.zero_grad()
     done = False 
     b = batch_size
+    
+    # For plotting
+    rewards_history = []
     
     if verbose:
         print(f"Starting training with {nsteps} steps, batch size {batch_size}, max rollout length {max_rollout_len}")
@@ -212,6 +259,8 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, hi
             opt_pol.zero_grad()
 
         avg_length = true_lens.mean().item()
+        rewards_history.append(avg_length)
+        
         if step % 5 == 0:
             min_length = true_lens.min().item()
             max_length = true_lens.max().item()
@@ -229,18 +278,21 @@ def train(nsteps=100, batch_size=64, max_rollout_len=50, lr=1e-3, gamma=0.99, hi
             print(f"Environment solved at step {step} with average reward {avg_length}!")
             break
 
+    if plot: save_plot(rewards_history)
+        
+    
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train PPO on CartPole')
-    parser.add_argument('--nsteps', type=int, default=500, help='Number of training steps')
-    parser.add_argument('--batch-size', type=int, default=256, help='Batch size')
-    parser.add_argument('--max-rollout-len', type=int, default=200, help='Maximum rollout length')
-    parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
+    parser.add_argument('--nsteps', type=int, default=2000, help='Number of training steps')
+    parser.add_argument('--batch-size', type=int, default=64, help='Batch size')
+    parser.add_argument('--max-rollout-len', type=int, default=500, help='Maximum rollout length')
+    parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor')
-    parser.add_argument('--hidden-dim', type=int, default=128, help='Hidden dimension size for policy network')
+    parser.add_argument('--hidden-dim', type=int, default=256, help='Hidden dimension size for policy network')
     parser.add_argument('--early-stop', action='store_true', help='Stop training once environment is solved (avg reward > 195)')
     parser.add_argument('--wandb', action='store_true', help='Use wandb logging')
     parser.add_argument('--verbose', action='store_true', help='Print training progress')
-    
+    parser.add_argument('--plot', action='store_true', help='Save training progress plot')
     args = parser.parse_args()
     
     if args.verbose:
@@ -260,5 +312,6 @@ if __name__ == "__main__":
         hidden_dim=args.hidden_dim,
         early_stop=args.early_stop,
         wandb_log=args.wandb,
-        verbose=args.verbose
+        verbose=args.verbose,
+        plot=args.plot
     )
