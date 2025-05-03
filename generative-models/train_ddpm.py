@@ -473,6 +473,7 @@ if __name__ == "__main__":
     parser.add_argument('--verbose', action='store_true', help='Print training progress')
     parser.add_argument('--wandb', action='store_true', help='Use Weights & Biases for logging')
     parser.add_argument('--sample', action='store_true', help='Generate samples after training')
+    parser.add_argument('--save', action='store_true', help='Save model after training')
     
     args = parser.parse_args()
     
@@ -523,6 +524,11 @@ if __name__ == "__main__":
         print_every_steps=args.print_every,
         verbose=args.verbose
     )
+    
+    if args.save:
+        save_path = f'ddpm_trained_e{args.epochs}_ch{args.ch}.pt'
+        torch.save(model.state_dict(), save_path)
+        print(f"Model saved to {save_path}")
     
     if args.sample:
         print("Generating samples...")
