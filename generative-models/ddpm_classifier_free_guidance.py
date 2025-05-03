@@ -416,7 +416,8 @@ if __name__ == "__main__":
         
         # Convert to PIL image and save
         grid_img = torchvision.transforms.ToPILImage()(grid)
-        grid_img.save('cfg_unet_samples.png')
-        print("Samples saved to unet_samples.png")
+        filename = 'cfg_unet_samples.png'
+        grid_img.save(filename)
+        print(f"Samples saved to {filename}")
 
 
