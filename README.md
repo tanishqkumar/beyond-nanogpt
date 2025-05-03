@@ -20,7 +20,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
     </a>
     <div style="text-align: center; max-width: 600px; margin-top: 8px;">
       <sub>
-        A glimpse of some plots from the repository scripts. <br />
+        A glimpse of some plots you can make! <br />
         <b>(Left)</b> Language model speedups from 
         <code>attention-variants/linear_attention.ipynb</code>,<br />
         <b>(Center)</b> Samples from a small denoising diffusion model trained on MNIST in 
