@@ -8,9 +8,26 @@ This repo includes annotated and from-scratch implementations of tens of crucial
 
 It implements everything from KV caching and speculative decoding to 
 architectures like vision transformers and MLP-mixers to attention variants like linear or sparse attention
-to generative models like VAEs and diffusion transformers.  **Because everything is implemented by-hand, the code comments explain the especially subtle details often glossed over both in papers and production codebases.**
+to generative models like VAEs and denoising diffusion models.  **Because everything is implemented by-hand, the code comments explain the especially subtle details often glossed over both in papers and production codebases.**
 
-[Add three plots from linear attention profiling, DDPM generations, PPO rewards] in one line 
+<div style="display: flex; justify-content: space-around; align-items: flex-start; gap: 10px;">
+
+  <div style="text-align: center;">
+    <img src="https://github.com/user-attachments/assets/238d3971-e688-4d56-be7a-0c4abad25264" style="max-width: 200px; height: auto;" />
+    <div><sub>Linear Attention</sub></div>
+  </div>
+
+  <div style="text-align: center;">
+    <img src="https://github.com/user-attachments/assets/ca2e5d87-de9c-4629-a26d-5766666c4884" style="max-width: 200px; height: auto;" />
+    <div><sub>U-Net Samples</sub></div>
+  </div>
+
+  <div style="text-align: center;">
+    <img src="https://github.com/user-attachments/assets/29edc27a-f15e-4310-93ea-d33095f93d93" style="max-width: 200px; height: auto;" />
+    <div><sub>PPO Training Progress</sub></div>
+  </div>
+
+</div>
 
 ## Quickstart
 1. **Clone the Repo:**
@@ -33,7 +50,7 @@ to generative models like VAEs and diffusion transformers.  **Because everything
    or for instance 
    ```bash 
    cd rl/cartpole/
-   python train_reinforce.py --verbose 
+   python train_reinforce.py --verbose --wandb 
    ```
    Everything is written to be run on a single GPU. The code is self-documenting with comments for intuition and elaborating 
    on subtleties I found tricky to implement. 
