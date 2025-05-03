@@ -1,4 +1,6 @@
 '''
+(https://arxiv.org/pdf/2105.05233) [Diffusion Models Beat GANs on Image Synthesis]
+
 Classifier guidance for diffusion models that lets us "steer" the sampling process
 towards images of a particular class. In an LLM, you can do this by just prompting the model since it was 
 trained to change its output distribution based on the prompt. Since diffusion models are not autoregressive, 
@@ -23,13 +25,11 @@ totally separately!
 We implement this by:
 1. Training/loading a DDPM from train_ddpm.py
 2. Training a simple MLP classifier on MNIST that can handle noisy inputs
+    2.1. Note, we must train the classifier on the same data distribution (images + noise + time embeddings)
+            as the diffusion model so that we can use its learned data gradients "out of the box
 3. During sampling, doing both the regular denoising step AND a classifier gradient step
+    3.1. This "nudges" the latent we're denoising toward the desired class. 
 
-The classifier needs to handle noisy inputs since it sees x_t at various noise levels t.
-We accomplish this by:
-1. Adding sinusoidal time embeddings like in the DDPM
-2. Training on noisy versions of MNIST digits using the same noise schedule
-This lets it learn what digits "look like" at each noise level. 
 '''
 
 import os
