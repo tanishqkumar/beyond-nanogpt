@@ -9,8 +9,8 @@
 **Beyond-NanoGPT** is the minimal and educational repo aiming to **bridge between nanoGPT and research-level deep learning.** 
 This repo includes annotated and from-scratch implementations of almost 100 crucial modern techniques in frontier deep learning, aiming to help newcomers learn enough to start running experiments of their own. 
 
-The repo implements everything from KV caching and speculative decoding to 
-architectures like vision transformers and MLP-mixers to attention variants like linear or sparse attention
+The repo implements everything from KV caching and speculative decoding for LLMs to 
+architectures like vision transformers and MLP-mixers to attention variants like linear or grouped-query attention
 to generative models like VAEs and denoising diffusion models.  **Because everything is implemented by-hand, the code comments explain the especially subtle details often glossed over both in papers and production codebases.**
 
 <p align="center">
