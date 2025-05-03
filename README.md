@@ -127,7 +127,8 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] Image generation with a denoising diffusion U-Net (DDPM) `generative-models/train_ddpm.py` 
 - [x] Classifier-based diffusion guidance `generative-models/ddpm_classifier_guidance.py`
    - [x] Classifier-free diffusion guidance `generative-models/ddpm_classifier_free_guidance.py`
-- [ ] Discrete diffusion for language modeling 
+- [ ] Flow matching models
+   - [ ] ODE solver fundamentals
 
 ### MLSys 
 - [ ] Communication collectives (scatter, gather, ring/tree allreduce)
