@@ -93,7 +93,6 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] KV Caching `language-models/KV_cache.ipynb` 
 - [x] Speculative Decoding `language-models/speculative_decoding.ipynb`
 - [ ] RoPE embeddings
-- [ ] Multi-token Prediction
 - [ ] Continuous Batching 
 
 ### Reinforcement Learning
@@ -134,8 +133,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [ ] Communication collectives (scatter, gather, ring/tree allreduce)
 - [ ] Minimal FSDP re-implementation (data and tensor parallelism)
 - [ ] Ring Attention
-- [ ] Flash Attention
-- [ ] Paged Attention 
+- [ ] Flash Attention in Triton 
 - [ ] 4-bit weight-only quantization
 
 [Coming Soon]: RAG, Agents, Multimodality, Robotics. 
