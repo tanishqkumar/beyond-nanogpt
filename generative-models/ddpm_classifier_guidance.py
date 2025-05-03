@@ -1,14 +1,36 @@
-# train and save the ddpm from train_ddpm.py 
-# train and save a classifier (eg. small mlp) on mnist if one dont exist 
-# at inference time, load both 
-# write sample() for ddpm 
-# then to use the classifier for guided generation, we just: 
-# at each sampling step in the reverse process, 
-    # fwd the u-net as usual to predict noise to subtract from noised x
-    # mark the *data batch* as requires_grad=True and params=False
-    # run classifier fwd then bwd 
-    # run a grad step on the *data_batch* 
-    # add that as a steering vector in our update step 
+'''
+Classifier guidance for diffusion models that lets us "steer" the sampling process
+towards images of a particular class. In an LLM, you can do this by just prompting the model since it was 
+trained to change its output distribution based on the prompt. Since diffusion models are not autoregressive, 
+this doesn't work there, so if we want to sample from the "dog" distribution of a diffusion model trained on ImageNet, 
+we need this trick. The intuition is:
+
+1. Assume a pretrained DDPM, eg. from train_ddpm.py 
+2. We train a small classifier f(x) that can predict class labels even from noisy images x_t, eg. an MLP 
+3. During sampling, at each step we:
+   - Use the DDPM to predict how to denoise x_t -> x_{t-1} as usual
+   - BUT we also run the classifier f(x_t) and backprop to get grad[log f(x_t)]
+   - This gradient tells us how to tweak x_t to make it "more like" our target class
+   - We add this gradient as an extra "steering" term when denoising
+
+So in addition to following the learned denoising process, we're also nudging the samples
+towards regions that the classifier thinks look more like our target class. The classifier
+acts like a guide helping the diffusion model generate specific types of images.
+
+The cool part is this works even though the classifier and diffusion model were trained
+totally separately! 
+
+We implement this by:
+1. Training/loading a DDPM from train_ddpm.py
+2. Training a simple MLP classifier on MNIST that can handle noisy inputs
+3. During sampling, doing both the regular denoising step AND a classifier gradient step
+
+The classifier needs to handle noisy inputs since it sees x_t at various noise levels t.
+We accomplish this by:
+1. Adding sinusoidal time embeddings like in the DDPM
+2. Training on noisy versions of MNIST digits using the same noise schedule
+This lets it learn what digits "look like" at each noise level. 
+'''
 
 import os
 import torchvision
