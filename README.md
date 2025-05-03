@@ -124,8 +124,9 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] Image generation with a GAN `generative-models/train_gan.py`
 - [x] Image generation with a VAE `generative-models/train_vae.py`
    - [x] Train an autoencoder for reconstruction `generative-models/train_autoencoder.py` 
-- [x] Image generation with a U‑Net via DDPM `generative-models/train_ddpm.py` 
-- [ ] Classifier-based and classifier-free guidance
+- [x] Image generation with a denoising diffusion U-Net (DDPM) `generative-models/train_ddpm.py` 
+- [x] Classifier-based diffusion guidance `generative-models/ddpm_classifier_guidance.py`
+   - [x] Classifier-free diffusion guidance `generative-models/ddpm_classifier_free_guidance.py`
 - [ ] Discrete diffusion for language modeling 
 
 ### MLSys 
