@@ -4,6 +4,39 @@
 This is a fork of the train_ddpm.py script that supports classifier-free guidance for conditional sampling. 
 Before working through this, understand that as well as classifier-based guidance in ddpm_classifier_guidance.py 
 since that is the technique this method seeks to obviate. 
+
+The key changes this makes to train_ddpm.py are (along with motivation/intuition for each ):
+    - Introduce a notion of class-conditioning that parallels time-conditioning during training 
+        - ie. for a given batch during training, we pass in the labels as part of the conditioning
+            - Note this isn't "giving the answer away" because the DDPM is not trained to predict the class, but to reconstruct
+            the image exactly. 
+        - we make the model learn the unconditional image distribution as well as conditional distributions by only passing in class 
+        embeddings some fraction (eg. 80-90%) of the time, called "dropout on class labels." 
+            - this forces learning both because guessing a conditional distribution when you don't see a class label will do 
+            very poorly in reconstruction on average. 
+        - At first glance, since we *do not* modify the noise reconstruction loss function, one might ask why introducing class 
+        embeddings does anything at all (ie. forces learning of conditional class sub-distributions), since in principle the model 
+        could just learn to ignore them. 
+            - But actually the point is when you want to reconstruct an image, being told its an image of a dog (ie. given the class label), 
+            is a lot of information, since outputting a "generic dog" will do much better than not being told its a dog at all. So the model 
+            will learn to use the class label to output conditional distributions, hence allowing us to do conditional sampling, ie. guidance. 
+
+One might also ask why you even care about being classifier-free in the first place, since classifiers are much smaller than large 
+diffusion models, doing a fwd+bwd through those at sampling time isn't much overhead. I think the paper above actually gives 
+a very good explanation of this: 
+        > We are interested in whether classifier guidance can be performed without a classifier. Classifier
+    guidance complicates the diffusion model training pipeline because it requires training an extra
+    classifier, and this classifier must be trained on noisy data so it is generally not possible to plug
+    in a pre-trained classifier. Furthermore, because classifier guidance mixes a score estimate with
+    a classifier gradient during sampling, classifier-guided diffusion sampling can be interpreted as
+    attempting to confuse an image classifier with a gradient-based adversarial attack. This raises the
+    question of whether classifier guidance is successful at boosting classifier-based metrics such as FID
+    and Inception score (IS) simply because it is adversarial against such classifiers. Stepping in direction
+    of classifier gradients also bears some resemblance to GAN training, particularly with nonparameteric
+    generators; this also raises the question of whether classifier-guided diffusion models perform well
+    on classifier-based metrics because they are beginning to resemble GANs, which are already known
+    to perform well on such metrics.
+
 '''
 
 from train_ddpm import Conv, Attention, GroupNorm, TimeEmbedding
@@ -47,7 +80,7 @@ class UBlock(nn.Module):
             self.conv2 = Conv(ch_in=ch_in, ch_out=ch_in, upsample_ratio=1, kernel_sz=k)
             self.skip = nn.Conv2d(in_channels=ch_in, out_channels=ch_in, kernel_size=k, stride=2, padding=k//2)
 
-    def forward(self, x, time_scale, time_shift, class_scale, class_shift, residual=None): # conv, norm, and skip connection, with optional self-attn
+    def forward(self, x, scale, shift, residual=None): # conv, norm, and skip connection, with optional self-attn
         b, ch, h, w = x.shape 
         og_x = x.clone() # we can't naively add a residual since out main branch changes size
         if self.up: # so this makes sure our residual changes size accordingly to match the size of the main branch 
@@ -55,19 +88,17 @@ class UBlock(nn.Module):
         elif not self.up and not self.bottleneck: # self.down 
             og_x = self.skip(og_x)
 
-        time_scale = time_scale.view(b, ch, 1, 1)
-        time_shift = time_shift.view(b, ch, 1, 1)
-        class_scale = class_scale.view(b, ch, 1, 1)
-        class_shift = class_shift.view(b, ch, 1, 1)
+        scale = scale.view(b, ch, 1, 1)
+        shift = shift.view(b, ch, 1, 1)
         
-        # apply both time and class conditioning
-        h1 = self.gn1(x) * (time_scale + class_scale) + (time_shift + class_shift)
+        # apply conditioning
+        h1 = self.gn1(x) * scale + shift
         h1 = self.silu1(h1)
         if self.bottleneck: 
             h1 = self.attn(h1) # attn preserves [b, ch, h, w] shape
         h1 = self.conv1(h1)
 
-        h2 = self.gn2(h1) * (time_scale + class_scale) + (time_shift + class_shift)
+        h2 = self.gn2(h1) * scale + shift
         h2 = self.silu2(h2)
         if self.bottleneck: 
             h2 = self.attn(h2)
@@ -92,7 +123,16 @@ class ClassEmbedding(nn.Module):
         )
     
     def forward(self, c):  # [b] -> [b, dim]
-        return self.mlp(self.embedding(c.long()))
+        b = c.shape[0]
+        valid_indices = c > 0 # -1 means we want no class conditioning, so zero out those embeddings
+        embeddings = torch.zeros(b, self.dim, device=c.device, dtype=torch.float32)
+        
+        if valid_indices.any(): # embed those as usual 
+            valid_entries = c[valid_indices]
+            valid_embeddings = self.embedding(valid_entries.long())
+            embeddings[valid_indices] = valid_embeddings
+        
+        return self.mlp(embeddings)
 
 class UNet(nn.Module): # [b, ch, h, w] noised image -> [b, ch, h, w] of error (score-matching)
     def __init__(self, nblocks=11, time_embed_dim=64, ch_data=1, ch=32, h=32, w=32, k=3): # 5 down, 1 bottleneck, 5 up 
@@ -179,10 +219,12 @@ class UNet(nn.Module): # [b, ch, h, w] noised image -> [b, ch, h, w] of error (s
 
     pass # Ublock(down) x N -> Ublock(up) x N with middle layers having attn 
 
-def train(model, dataloader, betas, b=256, ch_data=1, h=32, w=32, epochs=10, lr=3e-4, print_every_steps=10, verbose=False): 
+def train(model, dataloader, betas, b=256, ch_data=1, h=32, w=32, epochs=10, 
+          lr=3e-4, print_every_steps=10, verbose=False, cfg_dropout_prob=0.1): 
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = model.to(device)
+    betas = betas.to(device)
 
     if verbose:
         print(f'Model is: ')
@@ -191,11 +233,9 @@ def train(model, dataloader, betas, b=256, ch_data=1, h=32, w=32, epochs=10, lr=
         total_params = sum(p.numel() for p in model.parameters())
         print(f"Model has {total_params:,} parameters")
     
-    betas = betas.to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
     opt.zero_grad()
 
-    
     T = betas.shape[0]
     alphas = 1 - betas 
     alphas_cumprod = torch.cumprod(alphas, dim=0)
@@ -211,23 +251,26 @@ def train(model, dataloader, betas, b=256, ch_data=1, h=32, w=32, epochs=10, lr=
         else:
             dataloader_iter = dataloader
             
-        for real_batch, _ in dataloader_iter: 
+        for real_batch, c in dataloader_iter:  # real_batch: [b, ch, h, w], real_labels: [b]
             real_batch = real_batch.to(device)
+            c = c.to(device)
             b = real_batch.shape[0] # actual batch size in case batch is incomplete/not full 
             real_batch = F.pad(real_batch, (2, 2, 2, 2), mode='constant', value=0)  # [b, 1, 28, 28] -> [b, 1, 32, 32]
             
-            
             t = torch.randint(0, T, (b,), device=device) # fresh batch of [t]
-            # generate a [b] tensor of class labels when/where we want to condition and None otherwise 
-            c = 
-
+            # generate a [b] tensor of class labels when/where we want to condition and -1 otherwise 
+                # we'll handle making sure -1 entries has zero embeddings and thus zero effect 
+                # from a conditioning perspective in the embedding class 
+            mask = torch.rand(b, device=device) < cfg_dropout_prob
+            c = torch.where(mask, -1, c)  
 
             true_noise = torch.randn(b, ch_data, h, w, device=device)
             noised_batch = sqrt_cp[t].reshape(b, 1, 1, 1) * real_batch + om_sqrt_cp[t].reshape(b, 1, 1, 1) * true_noise
 
-            pred_noise = model(noised_batch, t) # needs t for time step embeddings 
+            pred_noise = model(noised_batch, t, c) # now condition on both (t, c) instead 
             loss = F.mse_loss(true_noise, pred_noise)
-            loss.backward()
+            loss.backward() 
+
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             opt.step()
             opt.zero_grad()
@@ -240,29 +283,34 @@ def train(model, dataloader, betas, b=256, ch_data=1, h=32, w=32, epochs=10, lr=
                 print(f'Step {step}, epoch {epoch_idx+1}: Loss {loss.item()}')
 
 
-def sample(model, betas, n_samples=10, ch_data=1, h=32, w=32):
+def sample_guided(model, betas, target_class=6, n_samples=10, ch_data=1, h=32, w=32, guidance_scale=3.0):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = model.to(device)
     model.eval()
     
+    betas = betas.to(device)
     T = betas.shape[0]
     alphas = 1 - betas
     alphas_cumprod = torch.cumprod(alphas, dim=0)
     
-    # Start with pure noise
+    # start with noise 
     x = torch.randn(n_samples, ch_data, h, w, device=device)
     
-    # Reverse diffusion process
+    # reverse process 
     with torch.no_grad():
         for t in reversed(range(T)):
             t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
-            predicted_noise = model(x, t_batch)
+            c_batch = torch.full((n_samples,), target_class, device=device, dtype=torch.long)
+            predicted_noise_uncond = model(x, t_batch, torch.ones_like(t_batch) * -1)
+            predicted_noise_cond = model(x, t_batch, c_batch)
+            cond_diff = predicted_noise_cond - predicted_noise_uncond
+
+            predicted_noise = predicted_noise_uncond + guidance_scale * cond_diff
             
             alpha_t = alphas[t]
             alpha_cumprod_t = alphas_cumprod[t]
             
             if t > 0:
-                noise = torch.randn_like(x)
                 beta_t = betas[t]
                 alpha_cumprod_prev = alphas_cumprod[t-1]
                 variance = beta_t * (1.0 - alpha_cumprod_prev) / (1.0 - alpha_cumprod_t)
@@ -273,20 +321,20 @@ def sample(model, betas, n_samples=10, ch_data=1, h=32, w=32):
             # Update x using the reverse process formula
             x = (1 / torch.sqrt(alpha_t)) * (x - ((1 - alpha_t) / torch.sqrt(1 - alpha_cumprod_t)) * predicted_noise) + noise
     
-    # Denormalize and clip to [0, 1]
+    # denormalize to visualize 
     x = torch.clamp(x, -1, 1)
     x = (x + 1) / 2
     
-    # Remove padding (if needed)
+    # remove padding if we added since mnist is 28 x 28 
     if h == 32 and w == 32:
-        x = x[:, :, 2:-2, 2:-2]  # Remove padding to get back to 28x28
+        x = x[:, :, 2:-2, 2:-2]  
     
     return x
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train DDPM UNet on MNIST')
-    parser.add_argument('--ch_data', type=int, default=1, help='Number of channels in data') # ch_data = 1 on MNIST
+    parser.add_argument('--ch_data', type=int, default=1, help='Number of channels in data') 
     parser.add_argument('--ch', type=int, default=64, help='Number of channels in our latent space') 
     parser.add_argument('--h', type=int, default=32, help='Image height')
     parser.add_argument('--w', type=int, default=32, help='Image width')
@@ -296,11 +344,12 @@ if __name__ == "__main__":
     parser.add_argument('--timesteps', type=int, default=500, help='Number of diffusion timesteps')
     parser.add_argument('--beta_start', type=float, default=1e-4, help='Starting beta value')
     parser.add_argument('--beta_end', type=float, default=2e-2, help='Ending beta value')
+    parser.add_argument('--guidance_scale', type=float, default=3.0, help='Amount of guidance conditioning...')
     parser.add_argument('--schedule', type=str, default='cosine', choices=['linear', 'cosine'], help='Noise schedule type')
     parser.add_argument('--print_every', type=int, default=100, help='Print loss every N steps')
     parser.add_argument('--verbose', action='store_true', help='Print training progress')
     parser.add_argument('--wandb', action='store_true', help='Use Weights & Biases for logging')
-    parser.add_argument('--sample', action='store_true', help='Generate samples after training')
+    parser.add_argument('--sample_guided', action='store_true', help='Generate samples after training')
     parser.add_argument('--save', action='store_true', help='Save model after training')
     
     args = parser.parse_args()
@@ -312,7 +361,7 @@ if __name__ == "__main__":
     if args.schedule == 'linear':
         betas = torch.linspace(args.beta_start, args.beta_end, T)
     else:  # cosine schedule like in improved ddpm paper (Nichol & Dharival)
-        s = 0.008  # small offset to prevent singularity
+        s = 0.008  
         steps = torch.arange(T + 1, dtype=torch.float32) / T
         f_t = torch.cos((steps + s) / (1 + s) * math.pi / 2) ** 2
         alphas_cumprod = f_t / f_t[0]
@@ -350,7 +399,7 @@ if __name__ == "__main__":
         epochs=args.epochs, 
         lr=args.lr, 
         print_every_steps=args.print_every,
-        verbose=args.verbose
+        verbose=args.verbose,
     )
     
     if args.save:
@@ -358,55 +407,16 @@ if __name__ == "__main__":
         torch.save(model.state_dict(), save_path)
         print(f"Model saved to {save_path}")
     
-    if args.sample:
-        print("Generating samples...")
-        samples = sample(model, betas, n_samples=10, ch_data=args.ch_data, h=args.h, w=args.w)
+    if args.sample_guided:
+        print("Generating samples with classifier-free guidance...")
+        samples = sample_guided(model, betas, n_samples=10, ch_data=args.ch_data, h=args.h, w=args.w, guidance_scale=args.guidance_scale)
         
         # Create a grid of images
         grid = torchvision.utils.make_grid(samples, nrow=5)
         
         # Convert to PIL image and save
         grid_img = torchvision.transforms.ToPILImage()(grid)
-        grid_img.save('unet_samples.png')
+        grid_img.save('cfg_unet_samples.png')
         print("Samples saved to unet_samples.png")
 
 
-'''
-Key modifications needed in train_ddpm.py to support classifier-free guidance:
-
-1. Modify the training loop to randomly drop class labels:
-   - Add a dropout_prob parameter (e.g. 0.1) to randomly replace class labels with None
-   - When class label is None, model learns unconditional generation
-   - When class label is provided, model learns class-conditional generation
-   - This creates a single model that can do both conditional and unconditional generation
-
-2. Modify UNet architecture to accept class embeddings:
-   - Add class embedding layer to convert class labels to embeddings
-   - Project class embeddings to same dimension as time embeddings
-   - Concatenate class and time embeddings before projecting to shifts/scales
-   - When class label is None, use zero vector for class embedding
-
-3. Modify sampling to support guidance scale:
-   - Add guidance_scale parameter (e.g. 3.0-7.0) to control conditioning strength
-   - Run model forward pass twice:
-     1. With class label = None to get unconditional prediction
-     2. With target class label to get conditional prediction
-   - Combine predictions: pred = uncond + scale * (cond - uncond)
-   - Larger scale = stronger class guidance but potentially lower quality
-
-4. Update training config:
-   - Add dropout_prob parameter (e.g. 0.1) for label dropout rate
-   - Add class embedding dimension parameter
-   - Add guidance scale parameter for sampling
-
-5. Data changes:
-   - Modify dataloader to return (images, labels) instead of just images
-   - Handle None labels in forward pass
-   - Add class embedding layer initialization
-
-The key insight is that by randomly dropping class labels during training,
-the model learns both conditional and unconditional generation modes.
-At inference time, we can run both modes and interpolate between them
-using the guidance scale to control how strongly we want to condition
-on the class label.
-'''
