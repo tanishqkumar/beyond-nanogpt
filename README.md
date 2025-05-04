@@ -92,7 +92,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] Byte-Pair Encoding `language-models/bpe.ipynb`
 - [x] KV Caching `language-models/KV_cache.ipynb` 
 - [x] Speculative Decoding `language-models/speculative_decoding.ipynb`
-- [ ] RoPE embeddings
+- [x] RoPE embeddings `language-models/rope.ipynb`
 - [ ] Continuous Batching 
 
 ### Reinforcement Learning
