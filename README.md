@@ -71,7 +71,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] RNN for language modeling `architectures/train_rnn.py` 
 - [x] Residual Networks (ResNet) `architectures/train_resnet.py`
 - [x] MLP-Mixer `architectures/train_mlp_mixer.py`
-- [ ] LSTM
+- [x] LSTM `architectures/train_lstm.py`
 - [ ] MoE
 - [ ] Decision Transformer
 
