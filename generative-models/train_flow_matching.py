@@ -48,6 +48,7 @@ from torch.utils.data import DataLoader
 import os 
 import argparse
 import wandb 
+from tqdm import tqdm 
 
 class Flow(nn.Module): # [t, 1 * 28 * 28] -> [1 * 28 * 28] trained to predict v(x, t)
     def __init__(self, mult=4, nhidden=0): 
@@ -74,12 +75,12 @@ def loss_fn(flow, x_t, t, x0, x1):
     v_preds = flow(x_t, t) # out is [b, mnist_dim]
     return F.mse_loss(v_preds, x1-x0)
 
-def get_batch(dataloader, device='cuda'):
+def get_batch(dataloader, batch_size=128, device='cuda'):
     # fetch one batch and move to device, handle dataloader wraparound for multi-epoch 
     try:
         x1, _ = next(dataloader)
     except StopIteration:
-        dataloader = get_mnist_dataloader()
+        dataloader = get_mnist_dataloader(b=batch_size)
         x1, _ = next(dataloader)
         
     b, ch, h, w = x1.shape
@@ -107,7 +108,7 @@ def get_mnist_dataloader(b=32, device='cuda'):
 
 # define sample as a simple euler solver given flow and using x0=noise 
 @torch.no_grad()
-def sample(model, b=10): # want [b, ch, h, w] sampled outputs 
+def sample(model, b=10, niters=200): # want [b, ch, h, w] sampled outputs 
     # sample [b, mnist_dim]
     model.eval()
     device = next(model.parameters()).device
@@ -115,7 +116,6 @@ def sample(model, b=10): # want [b, ch, h, w] sampled outputs
     mnist_dim = ch * h * w
     # initialize on the same device as the model
     x = torch.randn(b, mnist_dim, device=device)
-    niters = 10
     times = torch.linspace(0, 1.0, niters + 1, device=device)
 
     # this might superficially resemble the denoising process in DDPMs
@@ -139,19 +139,20 @@ def train(lr=3e-4, nsteps=1000, verbose=True, do_sample=False, save=False, b=32,
 
     dataloader = get_mnist_dataloader(b, device=device)
     model = Flow(mult=mult, nhidden=nhidden).to(device)
+    model.train()
     if verbose: 
         n_params = sum(p.numel() for p in model.parameters())
         print(f'Model has {n_params:,} parameters')
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
 
-    for step in range(nsteps): 
-        x_t, t, x0, x1, dataloader = get_batch(dataloader)
+    for step in tqdm(range(nsteps)): 
+        x_t, t, x0, x1, dataloader = get_batch(dataloader, device=device, batch_size=b)
         opt.zero_grad()
         loss = loss_fn(model, x_t, t, x0, x1)
         loss.backward()
         opt.step()
 
-        if step % 100 == 0:
+        if step % 500 == 0:
             if verbose:
                 print(f'[{step}/{nsteps}]: Loss {loss.item():.6f}')
             if wandb.run is not None:
@@ -186,7 +187,7 @@ if __name__ == "__main__":
     parser.add_argument('--steps', type=int, default=5000, help='Number of training steps')
     parser.add_argument('--nhidden', type=int, default=0, help='Number of hidden layers')
     parser.add_argument('--mult', type=int, default=4, help='Hidden multiplier in MLP')
-    parser.add_argument('--B', type=int, default=256, help='Batch size')
+    parser.add_argument('--B', type=int, default=128, help='Batch size')
     parser.add_argument('--save', action='store_true', help='Save model checkpoint')
     parser.add_argument('--sample', action='store_true', help='Sample at end')
     parser.add_argument('--wandb', action='store_true', help='Use Weights & Biases for logging')
