@@ -10,13 +10,23 @@ basically it introduces a notion of a "cell" c_t that is meant to be the source 
 -- you can think of this as a primitive "residual stream" except it doesn't explicitly have resiudal connections 
 (that came in the ResNet paper in 2016, whereas this was published in 1992). Instead of using residuals for training stability, 
 it basically hardcodes the "allowable read/write" structure in every state update. And now instead of h_t the state being
-used to both transmit information across time as well as store information to be read out in self.Wsy
-, the two roles are separated where h_t does now only the latter (act as a readout) and the "cell" that is introduced
+used to both transmit information across time as well as store information to be read out in self.Wsy,
+ the two roles are separated where h_t does now only the latter (act as a readout) and the "cell" that is introduced
 c_t is focused on information transmission and stable training. 
 
-I find the amount of inductive bias personally quite amazing, since the notion of the different gates and how the 
+A penultimate comment is how some parts strike me as primitive transformer-like computations. For instance, 
+having i * g "feels like" a qkv computation, where i=qk, and g=v. Also, the fact that all f, i, g, o gatings 
+are "different views" of a `ss`-size vector feels much like how q, k, v are all "different views" of the input, x_t. 
+So you're essentially taking "different views" and having them talk to each other, and letting the new input/state 
+be a function of their "discussion." But this is a very informal analogy -- I wonder if someone has made this 
+relationship mathematically precise, I'm sure there is one (of some form), though it's not clear how revealing
+that would even be. 
+
+Overall, I find the amount of inductive bias personally quite amazing, since the notion of the different gates and how the 
 update rules are structured means we're essentially telling the model how to use its subspaces, which seems quite different
 from the modern "less inductive bias is better" philosophy. Maybe all of classical ML is a story of clever inductive bias!
+
+
 '''
 
 import argparse
