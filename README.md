@@ -153,7 +153,7 @@ If this codebase helped you, please share it and give it a star! You can cite th
 in your work as follows. 
 
 ```bibtex
-@article{beyond-nanogpt,
+@misc{beyond-nanogpt,
   title  = {Beyond-NanoGPT: From LLM Beginner to AI Researcher},
   author = {Tanishq Kumar},
   year   = {2025},
