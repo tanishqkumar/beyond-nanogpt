@@ -385,47 +385,27 @@ if __name__ == "__main__":
 
     if args.verbose:
         total_params = sum(p.numel() for p in model.parameters()) / 1e6
-        # Calculate parameters for a single MLP expert.
-        # Assumes the MLP structure is: Linear(D, D*mlp_mult) -> Act -> Linear(D*mlp_mult, D)
-        # D is args.hidden_dim (aliased as D in the script), mlp_mult is args.mlp_mult.
         
-        # Parameters for one MLP expert:
-        # Layer 1 (up_proj): (D * (D * args.mlp_mult)) weights + (D * args.mlp_mult) biases
-        # Layer 2 (down_proj): ((D * args.mlp_mult) * D) weights + D biases
+        # we use this for active param computation 
         params_one_expert_mlp = (D * D * args.mlp_mult) + \
                                 (D * args.mlp_mult) + \
                                 (D * args.mlp_mult * D) + \
                                 D
         
-        # total_params is already in Millions.
-        # Active parameters calculation depends on MoE configuration.
-        # L is args.nlayers.
         if args.num_experts > 1 and args.top_k > 0 and args.top_k < args.num_experts:
-            # This is the typical MoE case where a subset of experts is chosen.
-            # Calculate the "saved" parameters compared to a model where all experts are always active.
-            # This reduction is for (num_experts - top_k) experts per layer, across all L layers.
             param_reduction_actual_count = L * params_one_expert_mlp * (args.num_experts - args.top_k)
             param_reduction_M = param_reduction_actual_count / 1e6
             
             active_params_M = total_params - param_reduction_M
             print(f'Active parameters: {active_params_M:.2f}M ({args.top_k}/{args.num_experts} experts active per MoE layer)')
         else:
-            # This covers several cases:
-            # 1. Dense model (num_experts <= 1).
-            # 2. MoE where all experts are active (top_k >= num_experts).
-            # 3. Edge cases like top_k = 0 (assuming model still has all expert params).
-            active_params_M = total_params # All parameters in the model are considered active.
+            active_params_M = total_params
             
             if args.num_experts <= 1:
-                # This includes num_experts = 0 or 1. If num_experts = 1, it's a dense MLP model.
-                # If num_experts = 0, model structure might be different; total_params reflects it.
                 print(f'Active parameters: {active_params_M:.2f}M (Dense model or num_experts <= 1)')
             elif args.top_k == 0:
-                # All expert parameters exist but none are selected.
-                # "Active" here means parameters part of the model definition.
                 print(f'Active parameters: {active_params_M:.2f}M (top_k=0, experts are part of model but not selected)')
-            else: # top_k >= num_experts (and num_experts > 1)
-                # All existing experts are selected.
+            else:
                 print(f'Active parameters: {active_params_M:.2f}M (All {args.num_experts} experts selected as top_k >= num_experts)')
         
         print(f'Initializing dataloader with batch size {B}, sequence length {S} '
