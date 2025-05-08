@@ -82,7 +82,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] Linear Attention `attention-variants/linear_attention.ipynb` 
 - [x] Sparse Attention `attention-variants/sparse_attention.ipynb`
 - [x] Cross Attention `attention-variants/cross_attention.ipynb`
-- [] Multi-Latent Attention 
+- [ ] Multi-Latent Attention 
 
 ### Language Models
 
