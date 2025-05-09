@@ -1,7 +1,24 @@
 '''
-TODO: 
-# I don't always annotate types because it's often obvious, but this is a relatively subtle 
-# implementation where the index book-keeping etc is a bit involved, so I figured it'd be useful here 
+[https://arxiv.org/pdf/2101.03961] Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity
+[https://arxiv.org/pdf/2006.16668] GShard: Scaling Giant Models with Conditional Computation and Automatic Sharding
+
+Here we implement an MoE, ie. an MoEMLP layer and plug that into a Transformer training loop. 
+
+Key components:
+- TransformerLayer: Standard transformer layer with attention and MoE MLP
+- MoEMLP: Mixture of Experts implementation where each token is routed to top-k experts
+- Router: Routes tokens to experts based on learned weights
+
+MoE allows for conditional computation where only a subset of parameters are used for each token,
+enabling larger models with similar computational costs. The implementation includes:
+- Load balancing with capacity factor c to prevent expert overloading
+- Top-k routing where each token is processed by k experts
+- Token dropping when experts exceed capacity
+
+Changes from standard transformer:
+- MLP layer replaced with MoE layer
+- Additional router logits returned for auxiliary load balancing loss
+- Expert parameters stored as tensors rather than nn.Modules for efficient routing
 '''
 from __future__ import annotations 
 import argparse
@@ -27,7 +44,7 @@ ACT2FN = {
 }
 
 class TransformerLayer(nn.Module): 
-    def __init__(self, D=512, mult=4, head_dim=64, m=16, top_k=2, c=1.25, act=nn.GELU(), causal=True): 
+    def __init__(self, D=512, mult=4, head_dim=64, m=16, top_k=2, c=1.25, act=nn.GELU(), causal=True, device=None): 
         super().__init__()
         self.D = D
         self.mult = mult
@@ -39,20 +56,17 @@ class TransformerLayer(nn.Module):
         self.nheads = int(self.D/head_dim)
         self.act = act 
         self.causal = causal 
+        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.qkv_proj = nn.Linear(D, 3 * D)
         self.attn = nn.MultiheadAttention(embed_dim=D, num_heads=self.nheads, batch_first=True, bias=True)
-        self.ln1 = nn.LayerNorm()
-        self.ln2 = nn.LayerNorm()
+        self.ln1 = nn.LayerNorm(D)
+        self.ln2 = nn.LayerNorm(D)
 
-        self.mlp = nn.Sequential(
-            nn.Linear(D, mult * D), 
-            self.act, 
-            nn.Linear(mult * D, D)
-        )
+        self.mlp = MoEMLP(d=D, m=m, c=c, k=top_k, mult=mult, act=act, device=self.device)
 
     @staticmethod
-    def get_mask(S, device='cuda'): 
+    def get_causal_mask(S, device): 
         top = torch.triu(torch.ones(S, S)) 
         bottom = torch.tril(torch.ones(S, S), diagonal=-1) * 0.
         return torch.where(top.to(torch.bool), top * float('-inf'), bottom).to(device=device)
@@ -66,26 +80,37 @@ class TransformerLayer(nn.Module):
         x = self.ln1(x)
         qkv = self.qkv_proj(x)
         q, k, v = qkv.chunk(3, dim=-1)
-        mask = self.get_mask(s, device=device) if self.causal else torch.ones(s, s, device=device) 
+        mask = self.get_causal_mask(s, device=device) if self.causal else torch.ones(s, s, device=device) 
         attn_out, _ = self.attn(query=q, key=k, value=v, attn_mask=mask) # outputs [b, s, d] = wout(sm(q@k)v)
         x = residual + attn_out
         
         residual = x
         x = self.ln2(x)
-        x = self.mlp(x)
+        x, router_logits = self.mlp(x)
         x = residual + x
 
-        return x
+        return x, router_logits
 
 
 class Transformer(nn.Module): 
-    def __init__(self, V=10_000, D=512, mult=4, m=16, top_k=2, c=1.25, ): 
-        # needs emb, and unemb
-        # needs layers 
-        pass
+    def __init__(self, depth=6, D=512, V=10_000, mult=4, m=16, top_k=2, c=1.25, act=nn.GELU(), head_dim=64, causal=True, device=None): 
+        super().__init__()
+        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.emb = nn.Embedding(V, D)
+        self.unemb = nn.Linear(D, V)
+        
+        self.layers = nn.ModuleList([
+            TransformerLayer(D=D, m=m, top_k=top_k, c=c, mult=mult, act=act, head_dim=head_dim, causal=causal, device=self.device) 
+            for _ in range(depth)
+        ])
 
     def forward(self, x): 
-        pass 
+        all_router_logits = []
+        h = self.emb(x)
+        for layer in self.layers: 
+            h, logits = layer(h)
+            all_router_logits.append(logits)
+        return self.unemb(h), torch.stack(all_router_logits)
 
 class Router(nn.Module): # [b, s, d] -> [b, s, M] learns to assign each token an expert 
     def __init__(self, d: int = 512, act: nn.Module = nn.GELU(), mult: int = 4, m: int = 16): 
@@ -198,37 +223,33 @@ class MoEMLP(nn.Module):
         
         return out, logits  # [b, s, d], [b, s, m], stack logits over layers to create tensor we'll use for loss comp 
 
-
-# TODO: rewrite from scratch as well as collator before calling it, clean up comments and push 
-def loss_fn(logits, target, router_logits, z_coeff=0.1, balance_coeff=0.1): # router_logits is [b, s, m]
+def loss_fn(logits, target, router_logits, z_coeff=0.1, balance_coeff=0.01): # router_logits are [layers, b, s, m]
     ntp_loss = nn.CrossEntropyLoss()(logits, target)
     
-    # Z-loss: penalize router logits for being too large
-    # encourages per-token logits over experts to not be overconfident
+    # Z-loss: penalize router logits for being too large for any individual class
     z_loss = torch.mean(torch.logsumexp(router_logits, dim=-1)**2)
-    
-    # Balance loss: encourage equal expert utilization
-    # Calculate the fraction of tokens routed to each expert
-    route_probs = torch.softmax(router_logits, dim=-1)
-    # Mean probability of routing to each expert, averaged over the batch
-    mean_probs = route_probs.mean(dim=0)
-    # We want this to be uniform (1/num_experts for each expert)
-    num_experts = route_probs.size(-1)
-    target_probs = torch.ones_like(mean_probs) / num_experts
-    balance_loss = torch.sum((mean_probs - target_probs)**2)
+
+    # Balance loss: encourage equal expert utilization across *tokens*
+        # the key diff w/ above is encouraging uniformity across tokens vs classes
+        # we want to do both, but with indep coefficients, hence two diff loss terms
+    m = router_logits.shape[-1]
+    # we want the experts to be used uniformly, so we penalize distance of 
+        # our distb over experts from Unif[m] ~ 1/m
+    unif_balance = torch.ones(m, device=router_logits.device)/m
+    logits_flat = router_logits.view(-1, m)
+    route_probs = torch.softmax(logits_flat, dim=-1)
+    actual_balance = torch.mean(route_probs, dim=0)
+    balance_loss = F.mse_loss(actual_balance, unif_balance)
 
     return ntp_loss + z_coeff * z_loss + balance_coeff * balance_loss
 
-
-# TODO: rewrite 
-def collate_batch(batch, tokenizer):
-    """Collate function to create batches from TinyStories dataset"""
-    # get the text 
+def collate_batch(batch, tokenizer, device='cuda', maxlen=512):
+    # minimal collate function to create batches from TinyStories dataset 
     texts = [item['text'] for item in batch]
     
     # tokenize and pad sequences
-    encoded = tokenizer(texts, padding=True, truncation=True, max_length=512, return_tensors='pt')
-    return encoded['input_ids'].cuda()
+    encoded = tokenizer(texts, padding=True, truncation=True, max_length=maxlen, return_tensors='pt')
+    return encoded['input_ids'].to(device)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a MoE Transformer model')
@@ -252,10 +273,9 @@ if __name__ == "__main__":
     parser.add_argument('--aux_loss', action='store_true', help='Enable auxiliary losses (z-loss and balance loss)')
     args = parser.parse_args()
 
-    # set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    # stream the dataset to avoid OOM
+    # stream the dataset to avoid OOM for now since this is not the focus 
     if args.verbose:
         print('Loading TinyStories dataset...')
     dataset = load_dataset("roneneldan/TinyStories", streaming=True)
@@ -277,9 +297,9 @@ if __name__ == "__main__":
     model = Transformer(
         L, D, vocab_size, 
         device=device, 
-        num_experts=args.num_experts, 
+        m=args.num_experts, 
         top_k=args.top_k, 
-        capacity_factor=args.capacity_factor,
+        c=args.capacity_factor,
         mult=args.mlp_mult
     ).to(device)
 
@@ -382,3 +402,4 @@ if __name__ == "__main__":
         if args.verbose:
             print(f'Saving model to {save_path}...')
         torch.save(model.state_dict(), str(save_path))
+
