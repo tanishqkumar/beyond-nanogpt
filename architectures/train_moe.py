@@ -66,10 +66,10 @@ class TransformerLayer(nn.Module):
         self.mlp = MoEMLP(d=D, m=m, c=c, k=top_k, mult=mult, act=act, device=self.device)
 
     @staticmethod
-    def get_causal_mask(S, device): 
-        top = torch.triu(torch.ones(S, S)) 
-        bottom = torch.tril(torch.ones(S, S), diagonal=-1) * 0.
-        return torch.where(top.to(torch.bool), top * float('-inf'), bottom).to(device=device)
+    def get_causal_mask(S, device):
+        # create a mat full of -inf, then zero out the lower triangle + diagonal
+        mask = torch.triu(torch.full((S, S), float('-inf'), device=device), diagonal=1)
+        return mask
 
 
     def forward(self, x): 
