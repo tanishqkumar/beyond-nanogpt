@@ -26,169 +26,66 @@ ACT2FN = {
     'swish': torch.nn.functional.silu,
 }
 
-class Attention(torch.nn.Module): # BSD -> BSD
-    def __init__(self, D=768, layer_idx=None, head_dim=64, causal=True, device="cuda", gqa=False): 
+class TransformerLayer(nn.Module): 
+    def __init__(self, D=512, mult=4, head_dim=64, m=16, top_k=2, c=1.25, act=nn.GELU(), causal=True): 
         super().__init__()
-        self.D = D 
-        self.head_dim = head_dim
-        self.gqa = gqa 
-        assert D % head_dim == 0
-        self.nheads = D//head_dim
-        self.Wq = torch.nn.Linear(D, D)
-        self.Wk = torch.nn.Linear(D, D)
-        self.Wv = torch.nn.Linear(D, D)
+        self.D = D
+        self.mult = mult
+        self.m = m
+        self.top_k = top_k
+        self.c = c
+        self.head_dim = head_dim 
+        assert self.D % head_dim == 0 
+        self.nheads = int(self.D/head_dim)
+        self.act = act 
         self.causal = causal 
-        self.Wo = torch.nn.Linear(D, D)
-        self.device = device
-        self.layer_idx = layer_idx
 
-    def forward(self, x: torch.Tensor, kv_cache): # input is [B, S, D] 
-        B, S, D = x.shape
-        # this multi-head now, ie. make each QKV [B, S, D] --> [B, nh, S, hd]
+        self.qkv_proj = nn.Linear(D, 3 * D)
+        self.attn = nn.MultiheadAttention(embed_dim=D, num_heads=self.nheads, batch_first=True, bias=True)
+        self.ln1 = nn.LayerNorm()
+        self.ln2 = nn.LayerNorm()
 
-        Q, K, V = self.Wq(x), self.Wk(x), self.Wv(x) # all [B, S, D]
+        self.mlp = nn.Sequential(
+            nn.Linear(D, mult * D), 
+            self.act, 
+            nn.Linear(mult * D, D)
+        )
 
-        Q = Q.view(B, S, self.nheads, self.head_dim).transpose(1,2) # [B, nh, S, hd]
-        K = K.view(B, S, self.nheads, self.head_dim).transpose(1,2) 
-        V = V.view(B, S, self.nheads, self.head_dim).transpose(1,2)
+    @staticmethod
+    def get_mask(S, device='cuda'): 
+        top = torch.triu(torch.ones(S, S)) 
+        bottom = torch.tril(torch.ones(S, S), diagonal=-1) * 0.
+        return torch.where(top.to(torch.bool), top * float('-inf'), bottom).to(device=device)
 
-        # update kv cache 
-        layer_idx = self.layer_idx 
-        if kv_cache is not None and layer_idx is not None: 
-            # its preallocated, just write to the memory of the cache using state of current_length 
-            kv_cache.update(layer_idx, K, V)
-            K = kv_cache.keys[layer_idx][:, :, :kv_cache.current_length, :]
-            V = kv_cache.values[layer_idx][:, :, :kv_cache.current_length, :]
-
-        # [B, nh, S, hd] @ [B, nh, hd, S] -> [B, nh, S, S]
-        scale = torch.sqrt(torch.tensor(self.head_dim, dtype=Q.dtype, device=self.device))
-        logits = (Q @ K.transpose(-2, -1)) / scale
-        if self.causal:
-            mask = torch.triu(torch.ones_like(logits), diagonal=1).bool()
-            logits_masked = logits.masked_fill(mask, float('-inf'))
-        else:
-            logits_masked = logits
-
-        A = torch.nn.functional.softmax(logits_masked, dim=-1) # [B, nh, S, S]
-        
-        preout = torch.einsum('bnxy,bnyd->bnxd', A, V) # [B, nh, S, S] @ [B, nh, S, hd] -> [B, nh, S, hd]
-        preout = preout.transpose(1, 2).reshape(B, S, -1) # [B, nh, S, hd] -> [B, S, nh * hd]
-        
-        out = self.Wo(preout) # [B, S, D]
-        return out # [B, S, D]
-
-class LN(torch.nn.Module): 
-    def __init__(self, D, eps=1e-9, device=None): 
-        super().__init__()
-        self.D = D 
-        self.eps = eps
-        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.mean_scale = torch.nn.Parameter(torch.zeros(D))
-        self.std_scale = torch.nn.Parameter(torch.ones(D))
-
-    def forward(self, x): # x is [B, S, D]
-        mean = x.mean(dim=-1, keepdim=True) # [B, S, 1]
-        std = (x.var(dim=-1, keepdim=True) + self.eps)**0.5 # [B, S, 1]
-        x_norm = (x - mean)/(std) 
-        return x_norm * self.std_scale + self.mean_scale
-
-class TransformerLayer(torch.nn.Module): 
-    def __init__(self, D, gqa=False, device=None, num_experts=16, top_k=2, capacity_factor=1.25, mult=4): 
-        super().__init__()
-        self.D = D 
-        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.attn = Attention(D, gqa=gqa, device=self.device)
-        self.mlp = MoEMLP(D, device=self.device, m=num_experts, k=top_k, c=capacity_factor, mult=mult)
-        self.ln1 = LN(D, device=self.device)
-        self.ln2 = LN(D, device=self.device)  
-    
-    def forward(self, x, kv_cache=None): # x is BSD
-        ln1_out = self.ln1(x)
-        attn_out = self.attn(ln1_out, kv_cache=kv_cache)
-        x = x + attn_out
-        ln2_out = self.ln2(x)
-        mlp_out, router_logits = self.mlp(ln2_out)
-        x = x + mlp_out
-        return x, router_logits
-
-# simple pos_embeddings, leave RoPE etc to future implementation
-class PositionalEmbedding(torch.nn.Module):
-    def __init__(self, max_seq_len, D, device=None):
-        super().__init__()
-        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.pos_embedding = torch.nn.Parameter(torch.randn(max_seq_len, D))
-    
-    def forward(self, x): # x is [B, S, D]
-        B, S, D = x.shape
-        return x + self.pos_embedding[:S] # Broadcasting handles batch dimension
-
-class EmbeddingLayer(torch.nn.Module): 
-    # this is just a lookup table, gradients flow only to the entry we found in the lookup, not the same as matmul 
-    def __init__(self, vocab_size, D, device=None): 
-        super().__init__()
-        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.embedding = torch.nn.Parameter(torch.randn(vocab_size, D))
 
     def forward(self, x): 
-        return self.embedding[x]
-
-class UnembeddingLayer(torch.nn.Module): 
-    # similar to above, this is just a lookup table that maps embeddings back to logits
-    def __init__(self, vocab_size, D, device=None): 
-        super().__init__()
-        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.unembedding = torch.nn.Linear(D, vocab_size)
-
-    def forward(self, x): # x is [B, S, D]
-        # Return logits of shape [B, S, vocab_size]
-        return self.unembedding(x)
-
-class Transformer(torch.nn.Module): 
-    def __init__(self, depth, hidden_dim, vocab_size, max_seq_len=16384, device=None, gqa=False, 
-                 num_experts=16, top_k=2, capacity_factor=1.25, mult=4): 
-        super().__init__()
-        self.depth = depth
-        self.hidden_dim = hidden_dim
-        self.emb = EmbeddingLayer(vocab_size, hidden_dim, device=device)
-        self.pos_emb = PositionalEmbedding(max_seq_len, hidden_dim, device=device)
-        self.unemb = UnembeddingLayer(vocab_size, hidden_dim, device=device)
-        self.gqa = gqa 
-        self.layers = torch.nn.ModuleList([
-            TransformerLayer(
-                hidden_dim, 
-                gqa, 
-                device=device, 
-                num_experts=num_experts, 
-                top_k=top_k, 
-                capacity_factor=capacity_factor,
-                mult=mult
-            ) for _ in range(depth)
-        ])
-        for i, layer in enumerate(self.layers):
-            layer.attn.layer_idx = i  
-        self.device = device
-
-    # todo: rewrite to include all layer logits 
-    def forward(self, x, kv_cache=None):
-        x = self.emb(x)
-        if kv_cache is not None:
-            # When decoding, only add positional embeddings for the new tokens.
-            pos_offset = kv_cache.current_length
-            pos_emb = self.pos_emb.pos_embedding[pos_offset: pos_offset + x.size(1)].unsqueeze(0)
-            x = x + pos_emb
-        else:
-            x = self.pos_emb(x)
+        _, s, _ = x.shape 
+        device = x.device
         
-        all_router_logits = []
-        for i, layer in enumerate(self.layers):
-            x, router_logits = layer(x, kv_cache=kv_cache)
-            all_router_logits.append(router_logits)
+        residual = x
+        x = self.ln1(x)
+        qkv = self.qkv_proj(x)
+        q, k, v = qkv.chunk(3, dim=-1)
+        mask = self.get_mask(s, device=device) if self.causal else torch.ones(s, s, device=device) 
+        attn_out, _ = self.attn(query=q, key=k, value=v, attn_mask=mask) # outputs [b, s, d] = wout(sm(q@k)v)
+        x = residual + attn_out
         
-        logits = self.unemb(x)
-        
-        # Combine router logits from all layers as a tensor including layer dimension
-        combined_router_logits = torch.stack(all_router_logits, dim=0).mean(dim=0)
-        return logits, combined_router_logits
+        residual = x
+        x = self.ln2(x)
+        x = self.mlp(x)
+        x = residual + x
+
+        return x
+
+
+class Transformer(nn.Module): 
+    def __init__(self, V=10_000, D=512, mult=4, m=16, top_k=2, c=1.25, ): 
+        # needs emb, and unemb
+        # needs layers 
+        pass
+
+    def forward(self, x): 
+        pass 
 
 class Router(nn.Module): # [b, s, d] -> [b, s, M] learns to assign each token an expert 
     def __init__(self, d: int = 512, act: nn.Module = nn.GELU(), mult: int = 4, m: int = 16): 
@@ -199,9 +96,8 @@ class Router(nn.Module): # [b, s, d] -> [b, s, M] learns to assign each token an
 
     # [b, s, d] -> [b, s, m] automatically over last time of inputs
     def forward(self, x: torch.Tensor) -> torch.Tensor: 
-        return self.w2(self.act(self.w1(x)))
+        return self.w2(self.act(self.w1(x)))  # [b, s, d] -> [b, s, m]
 
-# TODO: add top_k>1 support after tracing the current implementation
 class MoEMLP(nn.Module): 
     def __init__(self, d: int = 512, m: int = 16, c: float = 1.25, k: int = 2, mult: int = 4, act: nn.Module = nn.GELU(), device=None): 
         super().__init__()
@@ -212,8 +108,6 @@ class MoEMLP(nn.Module):
         self.mult = mult
         self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # we use nn.Parameter and not nn.Linear because we want a 3-tensor of params across all experts     
-            # you could also use an nn.ModuleList to track the nn.Linear across the m experts 
         self.mlp1 = nn.Parameter(torch.randn(m, d, d*mult) / (d ** 0.5)) # make sure scaled by fan_in so matmul outputs are O(1) indep of d
         self.mlp2 = nn.Parameter(torch.randn(m, d*mult, d) / ((d*mult) ** 0.5)) 
         self.act = act 
@@ -221,81 +115,91 @@ class MoEMLP(nn.Module):
         self.router = Router(d=d, act=act, mult=mult, m=m)
 
     # [b, s, d] -> ([m, cap, d], [N, d], [N], [b, s, k])
-        # first object is input to MLP computation along last dim 
-        # second two tell us how the scatter was done so in gather() we can invert it back to [b, s, d]
-    def expert_scatter(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: 
+    def expert_scatter(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: 
         b, s, d = x.shape 
         x_flat = x.view(-1, d) # [b*s, d]
         c, m, k = self.c, self.m, self.k
         B = b*s
 
-        cap = int(B*c//m) # token capacity for a single token 
-        expert_inputs = torch.zeros(m, cap, d, device=x.device) # this is the object we seek to construct using our input x 
+        cap = int(B*c*k//m) # token capacity for a single token 
+        expert_inputs = torch.zeros(m, cap, d, device=x.device)  # [m, cap, d]
         
-        # add argmax here 
-        logits = self.router(x)
-        indices = torch.argmax(logits, dim=-1).view(-1) # [b, s, m] -> [b, s] -> [b*s]
+        logits = self.router(x)  # [b, s, m]
+        vals, inds = torch.topk(logits, k, dim=-1) # [b, s, m] -> [b, s, k]
+        probs = F.softmax(vals, dim=-1).view(-1) # [b*s, k] -> sm over each k -> [b*s*k]
+        inds = inds.view(-1) # [b*s*k]
 
-        one_hot = F.one_hot(indices, num_classes=m) # [b*s, m], we'll call b*s=B to represent "effective batch size over tokens"
-        counts = torch.cumsum(one_hot, dim=0) # [B, m] tells us how many tokens assigned to that expert seen so far (vertically)
+        one_hot = F.one_hot(inds, num_classes=m) # [b*s*k, m], expanded version of above
+        counts = torch.cumsum(one_hot, dim=0) # [b*s*k, m]
+        pos = counts[torch.arange(B*k, device=x.device), inds] - 1  
+        # [B*k], for each token its position in its expert's batch from [0, cap-1]
+
+        mask = pos < cap # [B*k] of bools, of which N are true 
+        selected_experts = inds[mask] # [N]
+        selected_probs = probs[mask] # [N], but now N can be >B
+        selected_pos = pos[mask] # [N] where N is number in mask 
+        selected_src = x_flat.repeat_interleave(k, dim=0)[mask]  # [N, d]
+
+        flat_inputs = expert_inputs.view(m * cap, -1)  # [m*cap, d]
+        flat_idx = selected_experts * cap + selected_pos  # [N]
+        flat_idx_expanded = flat_idx.unsqueeze(-1).expand(-1, d) # [N] -> [N, d]
+
+        flat_inputs.scatter_(0, flat_idx_expanded, selected_src)  # [m*cap, d]
         
-        # this pos computation is one of the most subtle lines, make sure to understand it
-            # it uses clever indexing/broadcasting to take each index to the its index within [cap]
-            # which is precisely the count above less one because we're going from a count to a 0-idx
-            # here's how the indexing works
-                # an important torch rule: indexing tensor X with tensors of shape
-                    #  Y outputs a tensor of shape Y
-                # eg. X[1, 2, 3] the tensors Y are scalars, so we get a scalar, ie. the 1-2-3th entry in X
+        expert_inputs = flat_inputs.view(m, cap, -1)  # [m, cap, d]
 
-                # here we want, for each row in range(b*s), the indices[row] element
-                # we want it to be [B] dim, so lets use range(B) and indices as our indices
-        pos = counts[torch.arange(B), indices] - 1
+        return (expert_inputs, flat_idx_expanded, mask, selected_probs, logits)
 
-        mask = pos < cap # these are the tokens we'll process at all, this is a [B] tensor of bools
-        selected_experts = indices[mask] # [N], where N is the number of indices that are true 
-                                                # in the mask (data dependent)
+    def expert_gather(self, 
+                      outputs: torch.Tensor,
+                      mask: torch.Tensor, 
+                      flat_idx: torch.Tensor,
+                      x: torch.Tensor,
+                      selected_probs: torch.Tensor) -> torch.Tensor: 
         
-        selected_pos = pos[mask] # [N]
-        selected_src = x_flat[mask]
-
-        flat_inputs = expert_inputs.view(m * cap, -1)
-        flat_idx = selected_experts * cap + selected_pos # for each selected idx, get its index in the target tensor
-        flat_idx = flat_idx.unsqueeze(-1).expand(-1, d) # [N] -> [N, d] so it has same shape as flat_inputs for .scatter_()
-        flat_inputs.scatter_(0, flat_idx, selected_src) # in place scatter of rows, everything was building up to be able to do this
-        expert_inputs = flat_inputs.view(m, cap, -1) 
-
-        return (expert_inputs, flat_idx, mask, logits) 
-
-    # take scatter indices and the expert-wise outputs [m, cap, d] and 
-    def expert_gather(self, outputs: torch.Tensor, mask: torch.Tensor, flat_idx: torch.Tensor, x: torch.Tensor) -> torch.Tensor: 
         b, s, d = x.shape
         c, m, k = self.c, self.m, self.k
-        cap = int(b*s*c//m)
+        B = b * s
+        cap = int(B * c * k // m)
 
-        ## now we have outputs, gather them back into [b, s, d] 
-        # gather has a similar api to scatter() and so we can re-use flat_idx to invert scatter()
-        flat_outputs = outputs.view(m*cap, d) # [m*cap, d]
-        gathered = torch.gather(flat_outputs, 0, flat_idx) # [N, d]
-        result = x.clone().reshape(b*s, d) # [b*s, d], we clone so that unprocessed tokens are pushed through 
-        result[mask] = gathered # processed tokens overwritten by flat_outputs, which is output of MLPs
-        result = result.view(b, s, d) # want output to be [b, s, d], like input in an MLP layer 
+        # Step 1: Flatten expert outputs to [m*cap, d]
+        flat_outputs = outputs.view(m * cap, d)
+
+        # Step 2: Gather and weight contributions from each expert
+        # flat_idx: [N, d] selects rows in flat_outputs
+        # selected_probs: [N] is the weight for each contribution
+        gathered = torch.gather(flat_outputs, 0, flat_idx) * selected_probs.unsqueeze(-1)  # [N, d]
         
-        return result 
+        # Initialize result with a copy of the input (flattened)
+        result_accum = x.view(B, d).clone()
+        
+        # Get indices of tokens that were processed by experts
+        token_idx = torch.arange(B, device=x.device).repeat_interleave(k)[mask]  # [N]
+        
+        # Zero out the positions that will receive expert outputs
+        # (to avoid adding to the original values)
+        result_accum.index_fill_(0, token_idx, 0)
+        
+        # Add weighted expert outputs to the result
+        result_accum.index_add_(0, token_idx, gathered)
+        
+        return result_accum.view(b, s, d)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor: 
-        # assign each token to an expert and arrange tokens ready for expert computation
-        expert_inputs, flat_idx, mask, logits = self.expert_scatter(x)
+        expert_inputs, flat_idx, mask, selected_probs, logits = self.expert_scatter(x)  # [m, cap, d], [N, d], [N], [N], [b, s, m]
 
-        ## now do mlp computation on the inputs with a bmm along the num_experts axis (first, so treated as batch by default)
-        expert_outputs = torch.bmm(self.act(torch.bmm(expert_inputs, self.mlp1)), self.mlp2) # [m, cap, d] @ [m, d, d] -> [m, cap, d]
+        expert_outputs = torch.bmm(
+            self.act(
+                torch.bmm(expert_inputs, self.mlp1)
+                )
+            , self.mlp2) # [m, cap, d] @ [m, d, mult * d] -> [m, cap, mult * d] @ [m, mult * d, d] -> [m, cap, d] mlp 
 
-        # use our scatter() indices to gather everything back into place into [b, s, d]
-        out = self.expert_gather(expert_outputs, mask, flat_idx, x) # [b, s, d]
+        out = self.expert_gather(expert_outputs, mask, flat_idx, x, selected_probs) # [b, s, d]
         
-        return out, logits # will need logits for z-loss computation
+        return out, logits  # [b, s, d], [b, s, m], stack logits over layers to create tensor we'll use for loss comp 
 
 
-# TODO: rewrite from scratch 
+# TODO: rewrite from scratch as well as collator before calling it, clean up comments and push 
 def loss_fn(logits, target, router_logits, z_coeff=0.1, balance_coeff=0.1): # router_logits is [b, s, m]
     ntp_loss = nn.CrossEntropyLoss()(logits, target)
     
