@@ -2,23 +2,23 @@
 [https://arxiv.org/pdf/2101.03961] Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity
 [https://arxiv.org/pdf/2006.16668] GShard: Scaling Giant Models with Conditional Computation and Automatic Sharding
 
-Here we implement an MoE, ie. an MoEMLP layer and plug that into a Transformer training loop. 
+...and many papers since then have built on the MoE idea (eg. DeepSeekMoE), adding bells and whistles of their own. 
 
-Key components:
-- TransformerLayer: Standard transformer layer with attention and MoE MLP
-- MoEMLP: Mixture of Experts implementation where each token is routed to top-k experts
-- Router: Routes tokens to experts based on learned weights
+Here we implement an MoE, ie. an MoEMLP layer and plug that into a Transformer training loop. This is just the standard 
+transformer but with MLP replaced with an MoEMLP, which splits b*s tokens up and batches them to each be computed by an expert
+out of m experts. This involves a scatter-gather, with some subtle broadcasting/indexing to make sure tokens are scattered to the correct 
+expert then gathered back into [b, s, d] for next layer processing. 
+    We use a router MLP to choose which expert each token goes to, so Router: [b, s, d] -> [b, s, m] and 
+    other hypers like top_k determine how many experts a token is seen by. Since we want to do a batched matmul, the matrices for all experts
+    have to be the same size. So we preallocate a tensor allowing each expert slightly more than its fair share of tokens, ie. 
+    (b*s//m)*c where c is "overflow capacity." Tokens that overflow are dropped, ie. not computed on by any expert, and put in the output 
+    as they were in the input. 
 
-MoE allows for conditional computation where only a subset of parameters are used for each token,
-enabling larger models with similar computational costs. The implementation includes:
-- Load balancing with capacity factor c to prevent expert overloading
-- Top-k routing where each token is processed by k experts
-- Token dropping when experts exceed capacity
-
-Changes from standard transformer:
-- MLP layer replaced with MoE layer
-- Additional router logits returned for auxiliary load balancing loss
-- Expert parameters stored as tensors rather than nn.Modules for efficient routing
+The key thing to understand in this code is the expert_scatter and expert_gather implementations, including the dims of each object. 
+Many demo MoE implementations include for loops, eg. over experts or top_k. Our implementation is subtle because it's much closer 
+to a production implementation in that it involves *no for loops whatsoever* and everything is batched/vectorized. IMO, 
+writing scatter_expert and gather_expert from scratch is one of the most instructive pytorch tasks I've ever done, and I encourage you 
+to do the same. 
 '''
 from __future__ import annotations 
 import argparse
@@ -71,8 +71,7 @@ class TransformerLayer(nn.Module):
         mask = torch.triu(torch.full((S, S), float('-inf'), device=device), diagonal=1)
         return mask
 
-
-    def forward(self, x): 
+    def forward(self, x, cos=None, sin=None): 
         _, s, _ = x.shape 
         device = x.device
         
@@ -80,6 +79,16 @@ class TransformerLayer(nn.Module):
         x = self.ln1(x)
         qkv = self.qkv_proj(x)
         q, k, v = qkv.chunk(3, dim=-1)
+        
+        # apply rotary embeddings
+        if cos is not None and sin is not None:
+            q_heads = q.view(q.shape[0], q.shape[1], self.nheads, self.head_dim)
+            k_heads = k.view(k.shape[0], k.shape[1], self.nheads, self.head_dim)
+            q = (q_heads * cos) + (self.rotate_half(q_heads) * sin)
+            k = (k_heads * cos) + (self.rotate_half(k_heads) * sin)
+            q = q.view(q.shape[0], q.shape[1], -1)
+            k = k.view(k.shape[0], k.shape[1], -1)
+            
         mask = self.get_causal_mask(s, device=device) if self.causal else torch.ones(s, s, device=device) 
         attn_out, _ = self.attn(query=q, key=k, value=v, attn_mask=mask) # outputs [b, s, d] = wout(sm(q@k)v)
         x = residual + attn_out
@@ -90,6 +99,11 @@ class TransformerLayer(nn.Module):
         x = residual + x
 
         return x, router_logits
+
+    @staticmethod
+    def rotate_half(x):
+        x1, x2 = x[..., :x.shape[-1]//2], x[..., x.shape[-1]//2:]
+        return torch.cat((-x2, x1), dim=-1)
 
 
 class Transformer(nn.Module): 
@@ -104,11 +118,29 @@ class Transformer(nn.Module):
             for _ in range(depth)
         ])
 
+        # rope embeddings, not that important for this implementation, focus on moe details instead 
+        self.max_seq_len = 2048  
+        self.head_dim = head_dim
+        inv_freq = 1.0 / (10000 ** (torch.arange(0, head_dim, 2).float() / head_dim))
+        self.register_buffer("inv_freq", inv_freq)
+
+    def get_rotary_embeddings(self, x):
+        seq_len = x.shape[1]
+        t = torch.arange(seq_len, device=x.device).type_as(self.inv_freq)
+        freqs = torch.einsum("i,j->ij", t, self.inv_freq)
+        emb = torch.cat((freqs, freqs), dim=-1)
+        cos = emb.cos()[:, None, :]
+        sin = emb.sin()[:, None, :]
+        return cos, sin
+
     def forward(self, x): 
         all_router_logits = []
         h = self.emb(x)
+        
+        cos, sin = self.get_rotary_embeddings(x)
+        
         for layer in self.layers: 
-            h, logits = layer(h)
+            h, logits = layer(h, cos=cos, sin=sin)  
             all_router_logits.append(logits)
         return self.unemb(h), torch.stack(all_router_logits)
 
@@ -139,8 +171,10 @@ class MoEMLP(nn.Module):
 
         self.router = Router(d=d, act=act, mult=mult, m=m)
 
-    # [b, s, d] -> ([m, cap, d], [N, d], [N], [b, s, k])
+    # [b, s, d] -> ([m, cap, d], [N, d], [N], [N], [b, s, m])
     def expert_scatter(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: 
+        # we return the index information about how we "scatter" to experts so that we can reassemble everything 
+        # correctly in expert_gather 
         b, s, d = x.shape 
         x_flat = x.view(-1, d) # [b*s, d]
         c, m, k = self.c, self.m, self.k
@@ -254,6 +288,7 @@ def collate_batch(batch, tokenizer, device='cuda', maxlen=512):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a MoE Transformer model')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
+    # in production we'd include grad_accum_steps so we can scale up batch size independent of gpu memory constraints
     parser.add_argument('--seq_len', type=int, default=512, help='Sequence length')
     parser.add_argument('--hidden_dim', type=int, default=512, help='Hidden dimension')
     parser.add_argument('--nlayers', type=int, default=6, help='Number of transformer layers')
