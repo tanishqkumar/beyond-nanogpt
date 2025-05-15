@@ -73,7 +73,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] MLP-Mixer `architectures/train_mlp_mixer.py`
 - [x] LSTM `architectures/train_lstm.py` 
 - [x] MoE `architectures/train_moe.py` 
-- [ ] Decision Transformer
+<!-- - [ ] Decision Transformer -->
 
 ### Attention Variants
 - [x] Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` 
@@ -82,7 +82,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] Linear Attention `attention-variants/linear_attention.ipynb` 
 - [x] Sparse Attention `attention-variants/sparse_attention.ipynb`
 - [x] Cross Attention `attention-variants/cross_attention.ipynb`
-- [ ] Multi-Latent Attention 
+- [x] Multi-Latent Attention 
 
 ### Language Models
 
