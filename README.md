@@ -68,11 +68,11 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] Vanilla causal Transformer for language modeling (starting point) `language-models/train_naive.py`
 - [x] Vision Transformer (ViT) `architectures/train_vit.py`
 - [x] Diffusion Transformer (DiT) `architectures/train_dit.py`
-- [x] RNN for language modeling `architectures/train_rnn.py` 
+- [x] Recurrent Neural Network (RNN) `architectures/train_rnn.py` 
 - [x] Residual Networks (ResNet) `architectures/train_resnet.py`
 - [x] MLP-Mixer `architectures/train_mlp_mixer.py`
 - [x] LSTM `architectures/train_lstm.py` 
-- [x] MoE `architectures/train_moe.py` 
+- [x] Mixture-of-Experts (MoE) `architectures/train_moe.py` 
 <!-- - [ ] Decision Transformer -->
 
 ### Attention Variants
@@ -82,7 +82,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] Linear Attention `attention-variants/linear_attention.ipynb` 
 - [x] Sparse Attention `attention-variants/sparse_attention.ipynb`
 - [x] Cross Attention `attention-variants/cross_attention.ipynb`
-- [x] Multi-Latent Attention 
+- [x] Multi-Latent Attention `attention-variants/mla.ipynb`
 
 ### Language Models
 
