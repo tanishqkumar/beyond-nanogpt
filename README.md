@@ -94,7 +94,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] RoPE embeddings `language-models/rope.ipynb`
 
 ### Reinforcement Learning
-- Deep RL:
+- Deep RL
    - Fundamentals `rl/fundamentals`
       - [x] DQN `train_dqn.py`
       - [x] REINFORCE `train_reinforce.py`
