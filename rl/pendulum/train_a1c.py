@@ -54,6 +54,9 @@ class PolicyNet(nn.Module): # states -> action probs, modified now for pendulum 
         action = torch.clamp(distb.sample(), env_left, env_right) # scalar
         log_prob = distb.log_prob(action)
 
+        if torch.abs(log_prob) > 1e6:
+            raise ValueError("Log probability is too large, causing numerical instability")
+        
         return action, log_prob
 
 class ValueNet(nn.Module): # states -> values for states
@@ -88,7 +91,7 @@ def rewards2returns(value_net, rewards, states, gamma=0.99, max_rollout_len=50, 
     # don't want to update val_net based on policy loss, so detach (already done via torch.no_grad)
     return n_step_returns + (gamma ** n) * V_shifted
 
-def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollout_len=50, val_coeff=0.01, ent_coeff=1e-4, n=10): # first two are [b, ms]
+def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollout_len=50, val_coeff=0.01, ent_coeff=1e-4, n=10, verbose=False): # first two are [b, ms]
     batch_size, seq_len = states.shape[0], states.shape[1]
     returns = rewards2returns(
         value_net,
@@ -125,7 +128,8 @@ def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollou
 
 
     # Print the magnitude of each loss component for monitoring/debugging
-    print(f"Policy Loss: {policy_loss_t.item():.4f}, Value Loss (x{val_coeff}): {value_loss_t.item():.4f}, Entropy Loss (x{ent_coeff}): {entropy_loss_t.item():.4f}")
+    if verbose: 
+        print(f"Policy Loss: {policy_loss_t.item():.4f}, Value Loss (x{val_coeff}): {value_loss_t.item():.4f}, Entropy Loss (x{ent_coeff}): {entropy_loss_t.item():.4f}")
 
     return policy_loss_t + val_coeff * value_loss_t - ent_coeff * entropy_loss_t
 
@@ -180,6 +184,39 @@ def get_batch(policy, env, nstates, b: int = 64, max_rollout_len: int = 200,
     
     return batch_rewards, batch_logprobs, batch_states # [B, T], [B, T], [B, T, states] = [B, T, 3]
 
+def eval(policy, env, max_rollout_len: int = 200, b: int = 64): 
+    batch_rewards = []
+
+    for batch_idx in range(b):
+        i = 0
+
+        # init tensors
+        rollout_rewards = torch.zeros(max_rollout_len, device=device)
+        state, _ = env.reset()
+
+        state = torch.from_numpy(state).float().to(device)
+        # generate a single rollout
+        while i < max_rollout_len:
+            with torch.no_grad():  # Disable gradient computation during evaluation
+                next_action, _ = policy(state)
+            # Ensure action is detached before converting to numpy/float
+            next_action_float = float(next_action.detach().cpu().numpy())
+            next_state, r, terminated, truncated, _ = env.step([next_action_float])
+
+            # Store data on the correct device
+            rollout_rewards[i] = torch.tensor(float(r), device=device)
+
+            state = torch.from_numpy(next_state).float().to(device)
+            i += 1
+            
+            # Break if episode is done
+            if terminated or truncated:
+                break
+
+        # add tensor to list to stack later
+        batch_rewards.append(rollout_rewards[:i].mean())  # Only average the actual steps taken
+
+    return torch.tensor(batch_rewards, device=device).mean()
 
 def train(nsteps=100, batch_size=16, max_rollout_len=200, lr=1e-3, gamma=0.99, verbose=False, nstates=3, policy_hidden_dim=128, value_hidden_dim=128):
     policy = PolicyNet(hidden_dim=policy_hidden_dim, nstates=nstates).to(device)
