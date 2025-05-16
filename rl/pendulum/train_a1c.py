@@ -1,26 +1,19 @@
 '''
-work in progress...
-
-
 Changes to take REINFORCE -> vanilla actor-critic (A1C)
-    - change to pendulum environment from Pendulum, where now action is scalar
+    - change to Pendulum environment from Cartpole, where now action is scalar
         - new nstates=3, nactions=1 scalar
-        - also means we output the mean of a distribution now from which we sample actions
-        - no need for mask since pendulum always runs to a max step budget, no "dones" need to be stored
+        - this now means we treat the scalar output as the mean of an action distribution 
+        - no need for mask/dones since pendulum doesn't truncate early 
     - value net has scalar output given a vector of states, ie. nstates -> 1
     - general n-step loss as opposed to n=T
-    - value net trained in loss_fn wrt returns
-        - include entropy loss
+    - value net also trained in loss_fn wrt returns, and we also have an entropy component
     - put everything on a single cpu & make networks smaller
 
-Changes to take A1C -> A3c
+Changes to take A1C -> A3C
     - add a worker_fn that
         - does a batch of rollouts
         - compute loss
         - updates torch.shared_memory global parameters
-
-        make helper fn for each of these and then define _worker to be all three in succession
-        wrapped in a while loop reading a global step counter (nupdates)
 
 '''
 
@@ -65,7 +58,6 @@ class PolicyNet(nn.Module): # states -> action probs, modified now for pendulum 
 
         return action, log_prob
 
-# TODO: in practice, we share params as two heads on the same backbone
 class ValueNet(nn.Module): # states -> values for states
     def __init__(self, nstates=3, hidden_dim=16, act=nn.GELU()):
         super().__init__()
