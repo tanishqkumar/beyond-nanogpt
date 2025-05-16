@@ -95,15 +95,15 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 
 ### Reinforcement Learning
 - Deep RL:
-   - Fundamentals `rl/cartpole`
+   - Fundamentals `rl/fundamentals`
       - [x] DQN `train_dqn.py`
       - [x] REINFORCE `train_reinforce.py`
       - [x] PPO `train_ppo.py`
-   - Actor-Critic and Distributed Variants `rl/pendulum`
+   - Actor-Critic and Distributed Variants `rl/actor-critic`
       - [x] Advantage Actor-Critic (A2C) `train_a2c.py`
       - [x] Asynchronous Advantage Actor-Critic (A3C) `train_a3c.py` 
-      - [ ] Soft Actor-Critic (off-policy)
       - [ ] IMPALA (distributed RL)
+      - [ ] Soft Actor-Critic (off-policy)
    - Model-based RL 
       - [ ] PETS 
       - [ ] MBPO 
