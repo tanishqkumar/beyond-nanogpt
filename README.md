@@ -73,7 +73,6 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] MLP-Mixer `architectures/train_mlp_mixer.py`
 - [x] LSTM `architectures/train_lstm.py` 
 - [x] Mixture-of-Experts (MoE) `architectures/train_moe.py` 
-<!-- - [ ] Decision Transformer -->
 
 ### Attention Variants
 - [x] Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` 
@@ -95,7 +94,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] RoPE embeddings `language-models/rope.ipynb`
 
 ### Reinforcement Learning
-- Classical RL:
+- Deep RL:
    - Fundamentals `rl/cartpole`
       - [x] DQN `train_dqn.py`
       - [x] REINFORCE `train_reinforce.py`
