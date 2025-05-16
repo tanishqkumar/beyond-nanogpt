@@ -1,5 +1,5 @@
 '''
-Changes to take REINFORCE -> vanilla actor-critic (A1C)
+Changes to take REINFORCE -> vanilla advantage actor-critic (A2C)
     - change to Pendulum environment from Cartpole, where now action is scalar
         - new nstates=3, nactions=1 scalar
         - this now means we treat the scalar output as the mean of an action distribution 
