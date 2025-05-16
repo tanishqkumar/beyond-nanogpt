@@ -9,6 +9,9 @@ Changes to take REINFORCE -> vanilla actor-critic (A1C)
     - value net also trained in loss_fn wrt returns, and we also have an entropy component
     - put everything on a single cpu & make networks smaller
 
+        --> The introduction of a value net, n-step loss, and modified loss function are what 
+        separate REINFORCE from actor-critic. s
+
 Changes to take A1C -> A3C
     - add a worker_fn that
         - does a batch of rollouts
