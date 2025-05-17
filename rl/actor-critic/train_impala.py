@@ -54,12 +54,12 @@ class ActorWorkerConfig:
     nstates: int = 3
     policy_hidden_dim: int = 32
     sync_freq: int = 10
-    max_steps: int = 10_000
+    max_actor_steps: int = 10_000
     eval_every: int = 20
 
 def _actor_worker(
     worker_id: int, # TODO: use this to print if verbose 
-    global_step: mp.Value, 
+    global_actor_step: mp.Value, 
     global_buffer_writelock: mp.Lock, 
     global_policy_net: nn.Module, 
     global_q_rewards: torch.Tensor, 
@@ -68,6 +68,7 @@ def _actor_worker(
     global_q_actions: torch.Tensor, 
     global_free_slots: mp.Queue, 
     global_filled_slots: mp.Queue, 
+    global_actor_to_sync: mp.Value, 
     config: ActorWorkerConfig = ActorWorkerConfig(),
 ) -> None:
     
@@ -77,23 +78,18 @@ def _actor_worker(
     local_policy = PolicyNet(hidden_dim=config.policy_hidden_dim, nstates=config.nstates).to(device)
 
     local_step = 0
-    while global_step.value < config.max_steps:
+    while global_actor_step.value < config.max_actor_steps:
 
         if local_step % 10 == 0: 
             print(f'Getting rollouts in worker {worker_id}, local 
-                  step {local_step} and global step {global_step.value}.')
+                  step {local_step} and global step {global_actor_step.value}.')
     
-        with global_step.get_lock():
-            global_step.value += 1
+        with global_actor_step.get_lock():
+            global_actor_step.value += 1
 
-        if local_step % config.sync_freq == 0: 
+        if (local_step % config.sync_freq == 0) or global_actor_to_sync.value: 
             # sync local model to global for rollouts to avoid being too stale 
             local_policy.load_state_dict(global_policy_net.state_dict())
-            local_value_net.load_state_dict(global_value_net.state_dict())
-
-        # we have to put things on cpu by hand 
-        local_policy = local_policy.to(device)
-        local_value_net = local_value_net.to(device)
         
         # gets a single rollout as IMPALA desires 
         batch_rewards, batch_logprobs, batch_states, batch_actions = get_batch(
@@ -103,7 +99,7 @@ def _actor_worker(
             1, 
             config.max_rollout_len, 
             False, # set verbose = False as an arg (not kwarg)
-            global_step.value, 
+            global_actor_step.value, 
             return_actions=True, 
             include_init_state=True, 
         )
@@ -180,7 +176,7 @@ def get_global_lps(batch_states: torch.Tensor, batch_actions: torch.Tensor, glob
     return F.log_softmax(selected_logits, dim=-1) # [B, T] logprob under global policy for [state_ij -> action_ij]
 
 
-def loss_fn(global_policy, global_lps, vals, target_vals, adv, val_coeff=0.01, ent_coeff=1e-4, n=10, verbose=False): # first two are [b, ms]
+def loss_fn(global_policy, global_lps, vals, target_vals, adv, val_coeff=0.01, ent_coeff=1e-4, verbose=False): # first two are [b, ms]
 
     # return -Reward = -E[R_t * logprob] as loss like in REINFORCE
     policy_loss_t = (-adv * global_lps).mean()
@@ -248,13 +244,14 @@ def learner_step(
     global_opt_pol: torch.optim.Optimizer,
     global_opt_val: torch.optim.Optimizer,
     global_slot_lock: mp.Lock,
-    global_step: mp.Value,
+    global_actor_step: mp.Value,
     buffers: Tuple[torch.Tensor], 
     global_free_slots: mp.Queue,
     global_filled_slots: mp.Queue,
+    clip_grad_norm: float = 1.0, 
 ) -> None:
     
-    batch_rewards, batch_local_lps, batch_states, batch_actions = get_batch_from_buffers(buffers, global_free_slots, global_filled_slots, big_bsz, global_slot_lock)
+    batch_rewards, batch_local_lps, batch_states, batch_actions = get_batch_from_buffers(buffers, global_free_slots, global_filled_slots, global_slot_lock, big_bsz)
     global_lps = get_global_lps(batch_states, batch_actions, global_policy_net) # fwd with global model getting logprobs of empirical actions 
     
     # vtrace basically adjusts for data being off-policy in an algorithm (actor critic, policy grad) that 
@@ -262,13 +259,32 @@ def learner_step(
         # other methods that use off-policy data (eg. DQN) don't assume/require policy gradient theorem
     # target_val is used as target in value network MSE computation, adv as advantage in policy loss
     values = global_value_net(batch_states) # # now [B, T+1] because batch_states is [B, T+1]
-    target_vals, adv = vtrace(global_value_net, global_policy_net, global_lps, batch_local_lps, values, batch_rewards, clip_rho=1.0, clip_c=1.0)
+    target_vals, adv = vtrace(
+        global_value_net, 
+        global_lps, 
+        batch_local_lps, 
+        values, 
+        batch_rewards, 
+        clip_rho=1.0, 
+        clip_c=1.0,
+        gamma=0.99
+    )
+    
+    global_opt_pol.zero_grad()
+    global_opt_val.zero_grad()
+
     loss = loss_fn(global_policy_net, global_lps, values, target_vals, adv)
     loss.backward()
-
     
+    if global_actor_step.value % 10 == 0: 
+        print(f'Main process computed loss {loss.item()} on global step {global_actor_step.value}.')    
 
-    
+    torch.nn.utils.clip_grad_norm_(global_policy_net.parameters(), clip_grad_norm)
+    torch.nn.utils.clip_grad_norm_(global_value_net.parameters(), clip_grad_norm)
+
+    global_opt_pol.step()
+    global_opt_val.step()
+
 
     return # broadcast global (policy, value) nets to actors after this 
 
@@ -277,8 +293,9 @@ def learner_step(
 ## MAIN LOGIC ## 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train Actor-Critic on Pendulum')
-    parser.add_argument('--max_steps', type=int, default=10_000, help='Maximum number of global steps')
-    parser.add_argument('--batch-size', type=int, default=16, help='Batch size for training')
+    parser.add_argument('--max_actor_steps', type=int, default=10_000, help='Maximum number of global steps')
+    parser.add_argument('--max_learner_steps', type=int, default=1_000, help='Maximum number of global steps')
+    parser.add_argument('--batch-size', type=int, default=128, help='Batch size for training')
     parser.add_argument('--max-rollout-len', type=int, default=20, help='Maximum rollout length')
     parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor')
@@ -299,8 +316,8 @@ if __name__ == "__main__":
     nstates = 3 # hardcode for pendulum 
     global_policy_net = PolicyNet(hidden_dim=args.policy_hidden_dim, nstates=nstates).to(device)
     global_value_net = ValueNet(hidden_dim=args.value_hidden_dim, nstates=nstates).to(device)
-    global_policy_net.share_memory()
-    global_value_net.share_memory()
+    global_policy_net.share_memory_()
+    global_value_net.share_memory_()
     
     global_opt_pol = torch.optim.AdamW(global_policy_net.parameters(), lr=args.lr)
     global_opt_val = torch.optim.AdamW(global_value_net.parameters(), lr=args.lr)
@@ -310,16 +327,16 @@ if __name__ == "__main__":
     for state in global_opt_pol.state.values(): 
         for k, v in state.items(): 
             if torch.is_tensor(v): 
-                state[k] = v.share_memory()
+                state[k] = v.share_memory_()
 
     for state in global_opt_val.state.values(): 
         for k, v in state.items(): 
             if torch.is_tensor(v): 
-                state[k] = v.share_memory()
+                state[k] = v.share_memory_()
 
     # Create worker config with CLI args
     actor_worker_config = ActorWorkerConfig(
-        max_steps=args.max_steps,
+        max_actor_steps=args.max_actor_steps,
         max_rollout_len=args.max_rollout_len,
         gamma=args.gamma,
         verbose=args.verbose,
@@ -333,12 +350,13 @@ if __name__ == "__main__":
     all_procs = []
     global_buffer_writelock = mp.Lock()  
     global_slot_lock = mp.Lock()  
-    global_step = mp.Value('i', 0)  
+    global_actor_step = mp.Value('i', 0)  
+    global_actor_to_sync = mp.Value('i', 0)  
 
-    global_q_rewards = torch.zeros(args.buffer_sz, args.max_rollout_len, device=device).share_memory()
-    global_q_logprobs = torch.zeros(args.buffer_sz, args.max_rollout_len, device=device).share_memory()
-    global_q_states = torch.zeros(args.buffer_sz, args.max_rollout_len, nstates, device=device).share_memory()
-    global_q_actions = torch.zeros(args.buffer_sz, args.max_rollout_len, device=device).share_memory()
+    global_q_rewards = torch.zeros(args.buffer_sz, args.max_rollout_len, device=device).share_memory_()
+    global_q_logprobs = torch.zeros(args.buffer_sz, args.max_rollout_len, device=device).share_memory_()
+    global_q_states = torch.zeros(args.buffer_sz, args.max_rollout_len, nstates, device=device).share_memory_()
+    global_q_actions = torch.zeros(args.buffer_sz, args.max_rollout_len, device=device).share_memory_()
     
     global_free_slots = mp.Queue()
     global_filled_slots = mp.Queue()
@@ -355,10 +373,11 @@ if __name__ == "__main__":
     ACTOR_ARGS = (
         global_policy_net,
         global_buffer_writelock,
-        global_step,
+        global_actor_step,
         buffers, 
         global_free_slots,
         global_filled_slots,
+        global_actor_to_sync,
         actor_worker_config,
     )
     
@@ -372,13 +391,29 @@ if __name__ == "__main__":
     ### learner/gpu/main thread logic here ###
     # one learner process, the main thread running on our gpu 
 
-    # for step in nsteps 
-        # if eval_step(step): eval(global_policy)
-        # new_global_policy, new_global_value_net = learner_step()
-        # broadcast to workers 
+    LEARNER_ARGS = (
+        args.big_bsz,
+        global_policy_net,
+        global_value_net,
+        global_opt_pol,
+        global_opt_val,
+        global_slot_lock,
+        global_actor_step,
+        buffers,
+        global_free_slots,
+        global_filled_slots,
+        args.clip_grad_norm,
+    )
 
-    # if global_step.value % config.eval_every == 0: 
-            # avg_r = eval(global_policy_net, env)
+    for step in range(args.max_learner_steps): 
+        if step % args.eval_every: 
+            env = gym.make('Pendulum-v1')
+            avg_r = eval(global_policy_net, env)
+            if args.verbose: 
+                print(f'On step {step}, average reward in main process is {avg_r}.')
+        learner_step(*LEARNER_ARGS) 
+        # TODO: wait until workers synced using a barrier 
+
 
     ### learner/gpu/main thread logic here ###            
     
