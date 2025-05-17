@@ -9,6 +9,12 @@ Differences from A3C:
         - in IMPALA, local models (actors) pass *only rollout batches, 
             torch.stack([s, a, r])* to the learner (*global* model) which takes grads
 
+    - intuition for vtrace -- what needs correction, and why? 
+        - review of actor-critic math, A_t = G_t - V_t and why we want E_rollouts[G_t(s_t) - V_t(s_t)] = 0
+
+    - relation to LLM RL 
+        (decoupling acting and learning, doing policy-grad style stuff with half off policy rollouts)
+
     # actors (fwd only, small bsz=1) on cpu, learners (fwd+bwd, large batch) on gpu 
 '''
 
@@ -24,9 +30,10 @@ import warnings
 import torch.multiprocessing as mp
 from dataclasses import dataclass
 from typing import Tuple, List, Optional 
+import math 
 
 # we can port these primitives from vanilla actor-critic, this file is mainly about getting async logic right
-from train_a1c import ValueNet, PolicyNet, loss_fn, get_batch, eval 
+from train_a1c import ValueNet, PolicyNet, get_batch, eval 
 
 # clean up logs
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -98,6 +105,7 @@ def _actor_worker(
             False, # set verbose = False as an arg (not kwarg)
             global_step.value, 
             return_actions=True, 
+            include_init_state=True, 
         )
     
         # update shared memory with rollout, create mp.Queue passing around free slots 
@@ -120,10 +128,6 @@ def _actor_worker(
 
 
 ## LEARNER LOGIC ## 
-@dataclass
-class LearnerConfig: 
-    pass 
-
 def get_batch_from_buffers(
     buffers: Tuple[torch.Tensor], 
     global_free_slots: mp.Queue, 
@@ -156,8 +160,7 @@ def get_batch_from_buffers(
     return (batch_rewards, batch_local_lps, batch_states, batch_actions)
 
 
-
-# global fwd pass, done on cuda
+# global fwd pass, done on cuda since large batch 
 def get_global_lps(batch_states: torch.Tensor, batch_actions: torch.Tensor, global_policy: nn.Module): 
     # states and actions are [B,T,3] and [B, T] resp
     # want the probs of the empirical actions 
@@ -171,11 +174,71 @@ def get_global_lps(batch_states: torch.Tensor, batch_actions: torch.Tensor, glob
     rb = torch.arange(B, device='cuda')[:, None]
     rt = torch.arange(T, device='cuda')
     
-    # [B, T] now, ready for log_softmax
+    # [B, T] now, ready for log_softmax: logits -> logprobs 
     selected_logits = logits[rb, rt, batch_actions] 
     
     return F.log_softmax(selected_logits, dim=-1) # [B, T] logprob under global policy for [state_ij -> action_ij]
 
+
+def loss_fn(global_policy, global_lps, vals, target_vals, adv, val_coeff=0.01, ent_coeff=1e-4, n=10, verbose=False): # first two are [b, ms]
+
+    # return -Reward = -E[R_t * logprob] as loss like in REINFORCE
+    policy_loss_t = (-adv * global_lps).mean()
+
+    # get loss to update value network so it's better at predicting returns
+    value_loss_t = F.mse_loss(vals, target_vals)
+
+    # compute entropy_loss_t using policy.log_std of action distribution
+    # Proper entropy calculation for Normal distribution
+    # Entropy of Normal(μ,σ) = 0.5 * log(2πeσ²)
+    action_std = torch.exp(global_policy.log_std) # this implies converence 
+    pi_tensor = torch.tensor(math.pi, device=action_std.device)
+    entropy_loss_t = 0.5 * (torch.log(2 * pi_tensor * math.e * action_std.pow(2))).mean()
+
+
+    # Print the magnitude of each loss component for monitoring/debugging
+    if verbose: 
+        print(f"Policy Loss: {policy_loss_t.item():.4f}, Value Loss (x{val_coeff}): {value_loss_t.item():.4f}, Entropy Loss (x{ent_coeff}): {entropy_loss_t.item():.4f}")
+
+    return policy_loss_t + val_coeff * value_loss_t - ent_coeff * entropy_loss_t
+
+
+# outputs G_t, A_t for loss compuation, both are [B, T], more intuition on the math behind vtrace at the top of this file 
+# TODO: understand the math more carefully here, maybe even rewrite this for intuition 
+    # try vectorize the loop 
+def vtrace(
+    global_value_net: nn.Module, 
+    global_lps: torch.Tensor, 
+    local_lps: torch.Tensor, 
+    values: torch.Tensor, 
+    batch_rewards: torch.Tensor, 
+    clip_rho: float = 1.0, 
+    clip_c: float = 1.0, 
+    gamma: float = 0.99, 
+):
+    B, T = batch_rewards.shape 
+
+    # get importance weights global/local 
+    rho = torch.exp(global_lps - local_lps) # [B, T]
+    rho_bar = torch.clamp(rho, max=clip_rho)
+    c_bar = torch.clamp(rho, max=clip_c)
+
+    # build vs, the vtraced(values) 
+    vs = torch.zeros(B, T, device=batch_rewards.device) # [B, T]
+    acc = values[:, -1] # V_T from our value net, our base case for backward accumulation 
+    # see the V^trace_t = V_t + sum gamma^{i-t} (prod_j c_bar_j) delta_i 
+
+    for t in reversed(range(T)): 
+        delta = rho_bar[:, t] * (batch_rewards[:, t] + gamma * values[:, t+1] - values[:, t])
+        acc = values[:, t] + delta + gamma * c_bar[:, t] * (acc - values[:, t])
+        vs[:, t] = acc 
+
+    # use vs, IS-normalized-values to compute advantage instead
+    last_el = acc.unsqueeze(1) # [B, 1]
+    next_vs = torch.cat([vs[:, 1:], last_el], dim=1) # [B, T] shifted by 1 since A_t is in terms of vs[:, t+1]
+    adv = rho_bar * (batch_rewards + gamma * next_vs - values[:, :-1])
+
+    return vs, adv
 
 # this [consumes a batch from global buffers, does fwd to get global_model.logprobs, does bwd using (global_lps, batch)]
 def learner_step(
@@ -189,19 +252,25 @@ def learner_step(
     buffers: Tuple[torch.Tensor], 
     global_free_slots: mp.Queue,
     global_filled_slots: mp.Queue,
-    config: LearnerConfig
 ) -> None:
     
     batch_rewards, batch_local_lps, batch_states, batch_actions = get_batch_from_buffers(buffers, global_free_slots, global_filled_slots, big_bsz, global_slot_lock)
     global_lps = get_global_lps(batch_states, batch_actions, global_policy_net) # fwd with global model getting logprobs of empirical actions 
-        
-        # targets = get_vtrace_targets(s, a, local_lps, global_lps) # some tensor trickery to reweight things using logprobs
-        # loss = loss_fn(all_above) 
-        # loss.backward() 
-        # global_policy_opt.step(), global_value_opt.step(), clip grads 
-        # broadcast globals outside this 
+    
+    # vtrace basically adjusts for data being off-policy in an algorithm (actor critic, policy grad) that 
+        # otherwise assumes data is generated on-policy (policy grad thm requires this)
+        # other methods that use off-policy data (eg. DQN) don't assume/require policy gradient theorem
+    # target_val is used as target in value network MSE computation, adv as advantage in policy loss
+    values = global_value_net(batch_states) # # now [B, T+1] because batch_states is [B, T+1]
+    target_vals, adv = vtrace(global_value_net, global_policy_net, global_lps, batch_local_lps, values, batch_rewards, clip_rho=1.0, clip_c=1.0)
+    loss = loss_fn(global_policy_net, global_lps, values, target_vals, adv)
+    loss.backward()
 
-    pass 
+    
+
+    
+
+    return # broadcast global (policy, value) nets to actors after this 
 
 ## END LEARNER LOGIC ## 
 
