@@ -33,7 +33,7 @@ from typing import Tuple, List, Optional
 import math 
 
 # we can port these primitives from vanilla actor-critic, this file is mainly about getting async logic right
-from train_a1c import ValueNet, PolicyNet, get_batch, eval 
+from train_a2c import ValueNet, PolicyNet, get_batch, eval 
 
 # clean up logs
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -292,6 +292,8 @@ def learner_step(
 
 ## MAIN LOGIC ## 
 if __name__ == "__main__":
+    # TODOs: add syncing with barrier, guard in global reads/writes for emptyies, 
+    # there are also obviou bugs like actor order, etc
     parser = argparse.ArgumentParser(description='Train Actor-Critic on Pendulum')
     parser.add_argument('--max_actor_steps', type=int, default=10_000, help='Maximum number of global steps')
     parser.add_argument('--max_learner_steps', type=int, default=1_000, help='Maximum number of global steps')
@@ -312,6 +314,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     mp.set_start_method('spawn', force=True)
+
 
     nstates = 3 # hardcode for pendulum 
     global_policy_net = PolicyNet(hidden_dim=args.policy_hidden_dim, nstates=nstates).to(device)
@@ -355,7 +358,7 @@ if __name__ == "__main__":
 
     global_q_rewards = torch.zeros(args.buffer_sz, args.max_rollout_len, device=device).share_memory_()
     global_q_logprobs = torch.zeros(args.buffer_sz, args.max_rollout_len, device=device).share_memory_()
-    global_q_states = torch.zeros(args.buffer_sz, args.max_rollout_len, nstates, device=device).share_memory_()
+    global_q_states = torch.zeros(args.buffer_sz, args.max_rollout_len + 1, nstates, device=device).share_memory_()
     global_q_actions = torch.zeros(args.buffer_sz, args.max_rollout_len, device=device).share_memory_()
     
     global_free_slots = mp.Queue()
@@ -371,10 +374,13 @@ if __name__ == "__main__":
     )
     
     ACTOR_ARGS = (
-        global_policy_net,
-        global_buffer_writelock,
         global_actor_step,
-        buffers, 
+        global_buffer_writelock,
+        global_policy_net,
+        global_q_rewards,
+        global_q_logprobs,
+        global_q_states,
+        global_q_actions,
         global_free_slots,
         global_filled_slots,
         global_actor_to_sync,
@@ -392,7 +398,6 @@ if __name__ == "__main__":
     # one learner process, the main thread running on our gpu 
 
     LEARNER_ARGS = (
-        args.big_bsz,
         global_policy_net,
         global_value_net,
         global_opt_pol,
@@ -402,11 +407,11 @@ if __name__ == "__main__":
         buffers,
         global_free_slots,
         global_filled_slots,
-        args.clip_grad_norm,
+        args.max_grad_norm,
     )
 
     for step in range(args.max_learner_steps): 
-        if step % args.eval_every: 
+        if step % args.eval_every == 0: 
             env = gym.make('Pendulum-v1')
             avg_r = eval(global_policy_net, env)
             if args.verbose: 
