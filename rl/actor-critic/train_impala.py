@@ -17,12 +17,13 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import gym
 import torch
-import torch.nn as nn
+import torch.nn as nn, torch.nn.functional as F
 from tqdm import tqdm
 import argparse
 import warnings
 import torch.multiprocessing as mp
 from dataclasses import dataclass
+from typing import Tuple, List, Optional 
 
 # we can port these primitives from vanilla actor-critic, this file is mainly about getting async logic right
 from train_a1c import ValueNet, PolicyNet, loss_fn, get_batch, eval 
@@ -34,6 +35,8 @@ warnings.filterwarnings("ignore", message="`np.bool8` is a deprecated alias for 
 
 # TODO: make sure actors on cpu and main thread on cuda 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+## ACTOR LOGIC ##
 
 # avoid code bloat due to hypers/kwargs in workers by defining a dataclass
 @dataclass
@@ -50,13 +53,14 @@ class ActorWorkerConfig:
 def _actor_worker(
     worker_id: int, # TODO: use this to print if verbose 
     global_step: mp.Value, 
-    global_lock: mp.Lock, 
+    global_buffer_writelock: mp.Lock, 
     global_policy_net: nn.Module, 
     global_q_rewards: torch.Tensor, 
     global_q_logprobs: torch.Tensor, 
     global_q_states: torch.Tensor, 
     global_q_actions: torch.Tensor, 
     global_free_slots: mp.Queue, 
+    global_filled_slots: mp.Queue, 
     config: ActorWorkerConfig = ActorWorkerConfig(),
 ) -> None:
     
@@ -97,12 +101,13 @@ def _actor_worker(
         )
     
         # update shared memory with rollout, create mp.Queue passing around free slots 
-        with global_lock: 
+        with global_buffer_writelock: 
             free_slot_idx = global_free_slots.get()
             global_q_rewards[free_slot_idx:free_slot_idx+1, :].copy_(batch_rewards)
             global_q_logprobs[free_slot_idx:free_slot_idx+1, :].copy_(batch_logprobs)
             global_q_states[free_slot_idx:free_slot_idx+1, :, :].copy_(batch_states)
             global_q_actions[free_slot_idx:free_slot_idx+1, :].copy_(batch_actions)
+            global_filled_slots.put(free_slot_idx)
 
         local_step += 1
 
@@ -110,23 +115,97 @@ def _actor_worker(
     env.close()
 
 
-# this [consumes a batch from global buffers, does fwd to get global_model.logprobs, does bwd using (global_lps, batch)]
-def learner_step(
-    policy_net: nn.Module,
-    value_net: nn.Module,
-    opt_pol: torch.optim.Optimizer,
-    opt_val: torch.optim.Optimizer,
-    global_lock: mp.Lock,
-    global_step: mp.Value,
-    global_q_rewards: torch.Tensor,
-    global_q_logprobs: torch.Tensor,
-    global_q_states: torch.Tensor,
-    global_q_actions: torch.Tensor,
-    global_free_slots: mp.Queue,
-    config: ActorWorkerConfig
-) -> None:
+
+## END ACTOR LOGIC ## 
+
+
+## LEARNER LOGIC ## 
+@dataclass
+class LearnerConfig: 
     pass 
 
+def get_batch_from_buffers(
+    buffers: Tuple[torch.Tensor], 
+    global_free_slots: mp.Queue, 
+    global_filled_slots: mp.Queue, 
+    global_slot_lock: mp.Lock,
+    big_bsz: int = 128
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    
+    global_q_rewards, global_q_logprobs, global_q_states, global_q_actions = buffers
+    
+    with global_slot_lock: 
+        to_read_slots = []
+        for i in range(big_bsz): 
+            if global_filled_slots.empty():
+                if i == 0: 
+                    raise RuntimeError("No data in global rollout buffer when learner tried to access it!")
+                break 
+            slot = global_filled_slots.get()
+            to_read_slots.append(slot)
+
+    batch_rewards = global_q_rewards[to_read_slots]
+    batch_local_lps = global_q_logprobs[to_read_slots]
+    batch_states = global_q_states[to_read_slots]
+    batch_actions = global_q_actions[to_read_slots]
+
+    with global_slot_lock: 
+        for used_slot in to_read_slots: 
+            global_free_slots.put(used_slot)
+
+    return (batch_rewards, batch_local_lps, batch_states, batch_actions)
+
+
+
+# global fwd pass, done on cuda
+def get_global_lps(batch_states: torch.Tensor, batch_actions: torch.Tensor, global_policy: nn.Module): 
+    # states and actions are [B,T,3] and [B, T] resp
+    # want the probs of the empirical actions 
+    # policy(states) will be [B, T, nactions] logits 
+    global_policy = global_policy.cuda()
+    batch_states = batch_states.cuda()
+    batch_actions = batch_actions.cuda()
+    logits = global_policy(batch_states) # this is [B, T, nactions] and we want [B, T]
+    
+    B, T = batch_actions.shape
+    rb = torch.arange(B, device='cuda')[:, None]
+    rt = torch.arange(T, device='cuda')
+    
+    # [B, T] now, ready for log_softmax
+    selected_logits = logits[rb, rt, batch_actions] 
+    
+    return F.log_softmax(selected_logits, dim=-1) # [B, T] logprob under global policy for [state_ij -> action_ij]
+
+
+# this [consumes a batch from global buffers, does fwd to get global_model.logprobs, does bwd using (global_lps, batch)]
+def learner_step(
+    big_bsz: int, 
+    global_policy_net: nn.Module,
+    global_value_net: nn.Module,
+    global_opt_pol: torch.optim.Optimizer,
+    global_opt_val: torch.optim.Optimizer,
+    global_slot_lock: mp.Lock,
+    global_step: mp.Value,
+    buffers: Tuple[torch.Tensor], 
+    global_free_slots: mp.Queue,
+    global_filled_slots: mp.Queue,
+    config: LearnerConfig
+) -> None:
+    
+    batch_rewards, batch_local_lps, batch_states, batch_actions = get_batch_from_buffers(buffers, global_free_slots, global_filled_slots, big_bsz, global_slot_lock)
+    global_lps = get_global_lps(batch_states, batch_actions, global_policy_net) # fwd with global model getting logprobs of empirical actions 
+        
+        # targets = get_vtrace_targets(s, a, local_lps, global_lps) # some tensor trickery to reweight things using logprobs
+        # loss = loss_fn(all_above) 
+        # loss.backward() 
+        # global_policy_opt.step(), global_value_opt.step(), clip grads 
+        # broadcast globals outside this 
+
+    pass 
+
+## END LEARNER LOGIC ## 
+
+## MAIN LOGIC ## 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train Actor-Critic on Pendulum')
     parser.add_argument('--max_steps', type=int, default=10_000, help='Maximum number of global steps')
@@ -136,7 +215,7 @@ if __name__ == "__main__":
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor')
     parser.add_argument('--policy-hidden-dim', type=int, default=64, help='Hidden dimension size for policy network')
     parser.add_argument('--value-hidden-dim', type=int, default=64, help='Hidden dimension size for value network')
-    parser.add_argument('--nactors', type=int, default=8, help='Number of parallel actor threads')
+    parser.add_argument('--nactors', type=int, default=16, help='Number of parallel actor threads')
     parser.add_argument('--wandb', action='store_true', help='Use wandb logging')
     parser.add_argument('--verbose', action='store_true', help='Print training progress')
     parser.add_argument('--sync-freq', type=int, default=50, help='Frequency to sync local models with global model')
@@ -183,7 +262,8 @@ if __name__ == "__main__":
 
     # set up processes and their args 
     all_procs = []
-    global_lock = mp.Lock()  
+    global_buffer_writelock = mp.Lock()  
+    global_slot_lock = mp.Lock()  
     global_step = mp.Value('i', 0)  
 
     global_q_rewards = torch.zeros(args.buffer_sz, args.max_rollout_len, device=device).share_memory()
@@ -192,25 +272,27 @@ if __name__ == "__main__":
     global_q_actions = torch.zeros(args.buffer_sz, args.max_rollout_len, device=device).share_memory()
     
     global_free_slots = mp.Queue()
+    global_filled_slots = mp.Queue()
+    
     for i in range(args.buffer_sz): 
         global_free_slots.put(i)
     
-    ACTOR_ARGS = (
-        global_policy_net,
-        global_value_net,
-        global_opt_pol,
-        global_opt_val,
-        global_lock,
-        global_step,
-        global_q_rewards,
+    buffers = (global_q_rewards,
         global_q_logprobs,
         global_q_states,
         global_q_actions,
+    )
+    
+    ACTOR_ARGS = (
+        global_policy_net,
+        global_buffer_writelock,
+        global_step,
+        buffers, 
         global_free_slots,
+        global_filled_slots,
         actor_worker_config,
     )
     
-
     for worker_id in range(args.nactors): 
         p = mp.Process(target=_actor_worker, args=(worker_id, *ACTOR_ARGS))
         p.daemon = True 
@@ -221,9 +303,11 @@ if __name__ == "__main__":
     ### learner/gpu/main thread logic here ###
     # one learner process, the main thread running on our gpu 
 
-    # learner() or just put main logic here 
+    # for step in nsteps 
+        # if eval_step(step): eval(global_policy)
+        # new_global_policy, new_global_value_net = learner_step()
+        # broadcast to workers 
 
-    # eval logic in main thread with learner 
     # if global_step.value % config.eval_every == 0: 
             # avg_r = eval(global_policy_net, env)
 
