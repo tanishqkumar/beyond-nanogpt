@@ -22,7 +22,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import argparse
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Optional 
 import warnings
 import math  
 
@@ -134,9 +134,17 @@ def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollou
     return policy_loss_t + val_coeff * value_loss_t - ent_coeff * entropy_loss_t
 
 
-def get_batch(policy, env, nstates, b: int = 64, max_rollout_len: int = 200, 
-              verbose: bool = False, step: int = 0) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    batch_rewards, batch_logprobs = [], []  # both will be [b, sm]
+def get_batch(
+    policy,
+    env,
+    nstates,
+    b: int = 64,
+    max_rollout_len: int = 200,
+    verbose: bool = False,
+    step: int = 0,
+    return_actions: bool = False,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    batch_rewards, batch_logprobs, batch_actions = [], [], []  # both will be [b, sm]
     batch_states = []
 
     if verbose and step % 5 == 0:
@@ -149,6 +157,10 @@ def get_batch(policy, env, nstates, b: int = 64, max_rollout_len: int = 200,
         rollout_rewards = torch.zeros(max_rollout_len, device=device)
         rollout_logprobs = torch.zeros(max_rollout_len, device=device)
         rollout_states = torch.zeros(max_rollout_len, nstates, device=device)
+        if return_actions: 
+            rollout_actions = torch.zeros(max_rollout_len, device=device)
+        
+        # rollout_actions
         state, _ = env.reset()
 
         state = torch.from_numpy(state).float().to(device)
@@ -163,6 +175,8 @@ def get_batch(policy, env, nstates, b: int = 64, max_rollout_len: int = 200,
             rollout_rewards[i] = torch.tensor(float(r), device=device)
             rollout_logprobs[i] = logprob_next_action # Already on device from policy output
             rollout_states[i].copy_(state) # state is already on device
+            if return_actions: 
+                rollout_actions[i] = next_action
 
             state = torch.from_numpy(next_state).float().to(device)
             i += 1
@@ -175,14 +189,23 @@ def get_batch(policy, env, nstates, b: int = 64, max_rollout_len: int = 200,
         batch_rewards.append(rollout_rewards)
         batch_logprobs.append(rollout_logprobs)
         batch_states.append(rollout_states)
+        if return_actions: 
+            batch_actions.append(rollout_actions)
 
     # stack logprobs and r into two tensors, they are list of lists overall [b, mrl]
     # Tensors in the lists are already on the correct device
     batch_rewards = torch.stack(batch_rewards)
     batch_logprobs = torch.stack(batch_logprobs)
     batch_states = torch.stack(batch_states)
+    if return_actions: 
+        batch_actions = torch.stack(batch_actions)
     
-    return batch_rewards, batch_logprobs, batch_states # [B, T], [B, T], [B, T, states] = [B, T, 3]
+    if return_actions: 
+        return batch_rewards, batch_logprobs, batch_states, batch_actions 
+    else: 
+        # [B, T], [B, T], [B, T, states] = [B, T, 3]
+        return batch_rewards, batch_logprobs, batch_states
+        
 
 def eval(policy, env, max_rollout_len: int = 200, b: int = 64): 
     batch_rewards = []
