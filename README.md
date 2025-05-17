@@ -103,7 +103,8 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
       - [x] Advantage Actor-Critic (A2C) `train_a2c.py`
       - [x] Asynchronous Advantage Actor-Critic (A3C) `train_a3c.py` 
       - [ ] IMPALA (distributed RL)
-      - [ ] Soft Actor-Critic (off-policy)
+      - [ ] DDPG 
+      - [ ] Soft Actor-Critic
    - Model-based RL 
       - [ ] PETS 
       - [ ] MBPO 
