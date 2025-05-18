@@ -83,8 +83,8 @@ def _actor_worker(
     local_step = 0
     while global_learner_step.value < n_global_steps:
 
-        if local_step % 100 == 0: 
-            print(f'Getting rollouts in worker {worker_id}, local step {local_step} and global step {global_learner_step.value}.')
+        # if local_step % 200 == 0: 
+        #     print(f'Getting rollouts in worker {worker_id}, local step {local_step} and global step {global_learner_step.value}.')
     
         if (local_step % config.sync_freq == 0): 
             # sync local model to global for rollouts to avoid being too stale 
@@ -94,25 +94,27 @@ def _actor_worker(
                     local_param.copy_(global_param.cpu())
         
         # gets a single rollout as IMPALA desires 
-        batch_rewards, batch_logprobs, batch_states, batch_actions = get_batch(
-            local_policy, 
-            env, 
-            config.nstates, 
-            1, 
-            config.max_rollout_len, 
-            False, # set verbose = False as an arg (not kwarg)
-            global_learner_step.value, 
-            return_actions=True, 
-            include_init_state=True, 
-        )
+        with torch.no_grad(): 
+            batch_rewards, batch_logprobs, batch_states, batch_actions = get_batch(
+                local_policy, 
+                env, 
+                config.nstates, 
+                1, 
+                config.max_rollout_len, 
+                False, # set verbose = False as an arg (not kwarg)
+                global_learner_step.value, 
+                return_actions=True, 
+                include_init_state=True, 
+                device='cpu', # where the rollout is actually done using local_policy 
+            )
     
         # update shared memory with rollout, create mp.Queue passing around free slots 
         with global_buffer_writelock: 
             free_slot_idx = global_free_slots.get()
-            global_q_rewards[free_slot_idx:free_slot_idx+1, :].copy_(batch_rewards)
-            global_q_logprobs[free_slot_idx:free_slot_idx+1, :].copy_(batch_logprobs)
-            global_q_states[free_slot_idx:free_slot_idx+1, :, :].copy_(batch_states)
-            global_q_actions[free_slot_idx:free_slot_idx+1, :].copy_(batch_actions)
+            global_q_rewards[free_slot_idx:free_slot_idx+1, :].copy_(batch_rewards.cpu())
+            global_q_logprobs[free_slot_idx:free_slot_idx+1, :].copy_(batch_logprobs.cpu())
+            global_q_states[free_slot_idx:free_slot_idx+1, :, :].copy_(batch_states.cpu())
+            global_q_actions[free_slot_idx:free_slot_idx+1, :].copy_(batch_actions.cpu())
             global_filled_slots.put(free_slot_idx)
 
         local_step += 1
@@ -131,19 +133,20 @@ def get_batch_from_buffers(
     global_free_slots: mp.Queue, 
     global_filled_slots: mp.Queue, 
     global_slot_lock: mp.Lock,
-    big_bsz: int = 128
+    big_bsz: int = 256
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     
     global_q_rewards, global_q_logprobs, global_q_states, global_q_actions = buffers
     
+    while global_filled_slots.qsize() < big_bsz:
+        time.sleep(0.05)
+        if int(time.time()) % 100 == 0: 
+            print(f"Still waiting for buffer to be populated...")
+
     with global_slot_lock: 
         to_read_slots = []
         for i in range(big_bsz): 
-            if global_filled_slots.empty():
-                if i == 0: 
-                    raise RuntimeError("No data in global rollout buffer when learner tried to access it!")
-                break 
-            slot = global_filled_slots.get()
+            slot = global_filled_slots.get(block=True, timeout=2.0)
             to_read_slots.append(slot)
 
     batch_rewards = global_q_rewards[to_read_slots].clone()
@@ -160,22 +163,31 @@ def get_batch_from_buffers(
 
 # global fwd pass, done on cuda since large batch 
 def get_global_lps(batch_states: torch.Tensor, batch_actions: torch.Tensor, global_policy: nn.Module): 
-    # states and actions are [B,T,3] and [B, T] resp
+    # states and actions are [B,T+1,3] and [B, T] resp
     # want the probs of the empirical actions 
     # policy(states) will be [B, T, nactions] logits 
     global_policy = global_policy.to('cuda')
     batch_states = batch_states.to('cuda')
     batch_actions = batch_actions.to('cuda')
 
-    B, T, nstates = batch_states.shape 
+    B, T1, nstates = batch_states.shape 
+    T = T1 - 1  # T is one less than T1
     
-    logits = global_policy(batch_states.view(-1, nstates)).view(B, T, nstates) # this is [B, T, nactions] and we want [B, T]
-    lps = F.log_softmax(logits, dim=-1)
+    # We only need states for timesteps where we have actions
+    # Actions are [B, T] so we use states[:, :T1-1]
+    states_for_actions = batch_states[:, :T1-1].reshape(-1, nstates)
+    flat_actions = batch_actions.reshape(-1)
     
-    rb = torch.arange(B, device='cuda')[:, None]
-    rt = torch.arange(T, device='cuda')
+    # policy: nstates -> scalar
+    with torch.no_grad():
+        action_mean = global_policy._forward(states_for_actions).squeeze(-1)  # [B*T, 1]
+        action_std = torch.exp(global_policy.log_std)
+    distb = torch.distributions.Normal(action_mean, action_std)
     
-    return lps[rb, rt, batch_actions]  # [B, T] logprob under global policy for [state_ij -> action_ij]
+    # Get log probs and reshape to [B, T]
+    log_probs = distb.log_prob(flat_actions).squeeze(-1)
+
+    return log_probs.view(B, T)  # [B, T] of logprobs
 
 
 def loss_fn(global_policy, global_lps, vals, target_vals, adv, val_coeff=0.01, ent_coeff=1e-4, verbose=False): # first two are [b, ms]
@@ -184,7 +196,7 @@ def loss_fn(global_policy, global_lps, vals, target_vals, adv, val_coeff=0.01, e
     policy_loss_t = (-adv * global_lps).mean()
 
     # get loss to update value network so it's better at predicting returns
-    value_loss_t = F.mse_loss(vals[:, :-1], target_vals) # vals is [B, T+1] but target is [B, T]
+    value_loss_t = F.mse_loss(vals, target_vals) # vals is [B, T] but target is [B, T]
 
     # compute entropy_loss_t using policy.log_std of action distribution
     # Proper entropy calculation for Normal distribution
@@ -272,8 +284,8 @@ def learner_step(
         # other methods that use off-policy data (eg. DQN) don't assume/require policy gradient theorem
     # target_val is used as target in value network MSE computation, adv as advantage in policy loss
     
-    B, T, nstates = batch_states.shape
-    values = global_value_net(batch_states.view(-1, nstates)).view(B, T, nstates) # # now [B, T+1] because batch_states is [B, T+1]
+    B, T, nstates = batch_states.shape # [B, T, nstates]
+    values = global_value_net(batch_states.view(-1, nstates)).squeeze(-1).view(B, T) # now [B, T+1] because batch_states is [B, T+1]
     
     target_vals, adv = vtrace(
         global_lps, 
@@ -292,7 +304,7 @@ def learner_step(
     loss.backward()
     
     if global_learner_step.value % 10 == 0: 
-        print(f'Main process computed loss {loss.item()} on global step {global_learner_step.value}.')    
+        print(f'Main process computed loss {loss.item()} on global step {global_learner_step.value}. Buffer status: {global_filled_slots.qsize()} filled, {global_free_slots.qsize()} free slots')    
 
     torch.nn.utils.clip_grad_norm_(global_policy_net.parameters(), clip_grad_norm)
     torch.nn.utils.clip_grad_norm_(global_value_net.parameters(), clip_grad_norm)
@@ -307,19 +319,19 @@ def learner_step(
 ## MAIN LOGIC ## 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train Actor-Critic on Pendulum')
-    parser.add_argument('--nsteps', type=int, default=10_000, help='Maximum number of learner steps/updates')
+    parser.add_argument('--nsteps', type=int, default=1_000, help='Maximum number of learner steps/updates')
     parser.add_argument('--batch-size', type=int, default=256, help='Batch size for training')
     parser.add_argument('--max-rollout-len', type=int, default=20, help='Maximum rollout length')
     parser.add_argument('--lr', type=float, default=5e-4, help='Learning rate')
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor')
-    parser.add_argument('--policy-hidden-dim', type=int, default=64, help='Hidden dimension size for policy network')
-    parser.add_argument('--value-hidden-dim', type=int, default=64, help='Hidden dimension size for value network')
-    parser.add_argument('--nactors', type=int, default=int(os.cpu_count()/2), help='Number of parallel actor threads')
+    parser.add_argument('--policy-hidden-dim', type=int, default=128, help='Hidden dimension size for policy network')
+    parser.add_argument('--value-hidden-dim', type=int, default=128, help='Hidden dimension size for value network')
+    parser.add_argument('--nactors', type=int, default=int(os.cpu_count()/4), help='Number of parallel actor threads')
     parser.add_argument('--wandb', action='store_true', help='Use wandb logging')
     parser.add_argument('--verbose', action='store_true', help='Print detailed training progress and debugging information')
     parser.add_argument('--sync-freq', type=int, default=1, help='Frequency to sync local models with global model')
     parser.add_argument('--eval_every', type=int, default=50, help='Frequency to eval')
-    parser.add_argument('--buffer_sz', type=int, default=10_000, help='Size of global shared buffers for rollouts')
+    parser.add_argument('--buffer_sz', type=int, default=2_000, help='Size of global shared buffers for rollouts')
     parser.add_argument('--max-grad-norm', type=float, default=40.0, help='Maximum gradient norm for clipping')
 
     args = parser.parse_args()
@@ -391,7 +403,7 @@ if __name__ == "__main__":
         global_learner_step,
         args.nsteps,  
         global_buffer_writelock,
-        global_policy_net,
+        global_policy_net,  
         global_q_rewards,
         global_q_logprobs,
         global_q_states,
@@ -431,19 +443,16 @@ if __name__ == "__main__":
     
     if args.verbose: print(f'Waiting for actors to get set up so buffer is populated...')
     while global_filled_slots.empty():
-       time.sleep(0.1)
-       if args.verbose and int(time.time()) % 20 == 0: print(f"Still waiting for buffer to be populated...")
+       time.sleep(0.02)
+       if args.verbose and int(time.time()) % 100 == 0: print(f"Still waiting for buffer to be populated...")
+    
     if args.verbose: print(f'Buffer is nonempty, beginning training with {global_filled_slots.qsize()} filled slots')
 
     for step in range(args.nsteps): 
-        if step % args.eval_every == 0: 
+        if step > 0 and step % args.eval_every == 0: 
             env = gym.make('Pendulum-v1')
             if args.verbose: print(f"Starting evaluation at step {step}...")
-            # Move policy to CPU for evaluation
-            global_policy_net = global_policy_net.to('cpu')
-            avg_r = eval(global_policy_net, env)
-            # Move policy back to GPU after evaluation
-            global_policy_net = global_policy_net.to(device)
+            avg_r = eval(global_policy_net, env)  # Evaluate using GPU model
             if args.verbose: 
                 print(f'On step {step}, average reward in main process is {avg_r}.')
                 print(f'Buffer status: {global_filled_slots.qsize()} filled, {global_free_slots.qsize()} free slots')
@@ -454,6 +463,7 @@ if __name__ == "__main__":
         
         learner_step(*LEARNER_ARGS) 
         global_learner_step.value = step + 1  # Increment by 1 to match actual step count
+    
         
         if args.verbose and step % 10 == 0:
             print(f"Completed learner step {step}")

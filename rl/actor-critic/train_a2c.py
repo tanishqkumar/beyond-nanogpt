@@ -57,7 +57,7 @@ class PolicyNet(nn.Module): # states -> action probs, modified now for pendulum 
         if torch.abs(log_prob) > 1e6:
             raise ValueError("Log probability is too large, causing numerical instability")
         
-        return action, log_prob
+        return action.squeeze(-1), log_prob.squeeze(-1) # [B, T, 1] -> [B, T]
 
 class ValueNet(nn.Module): # states -> values for states
     def __init__(self, nstates=3, hidden_dim=16, act=nn.GELU()):
@@ -134,94 +134,154 @@ def loss_fn(policy, value_net, rewards, logprobs, states, gamma=0.99, max_rollou
     return policy_loss_t + val_coeff * value_loss_t - ent_coeff * entropy_loss_t
 
 
+# def get_batch(
+#     policy,
+#     env,
+#     nstates,
+#     b: int = 64,
+#     max_rollout_len: int = 200,
+#     verbose: bool = False,
+#     step: int = 0,
+#     return_actions: bool = False,
+#     include_init_state: bool = False, 
+#     device='cuda',
+# ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+#     batch_rewards, batch_logprobs, batch_actions = [], [], []  # both will be [b, sm]
+#     batch_states = []
+
+#     if verbose and step % 5 == 0:
+#         print(f"\nGenerating batch {step} of rollouts...")
+
+#     # Ensure policy is on the correct device for rollouts
+#     policy = policy.to(device)
+
+#     for batch_idx in range(b):  # in contrast to dqn which stores a buffer where we may be learning from
+#         i = 0
+
+#         states_len = max_rollout_len + 1 if include_init_state else max_rollout_len
+
+#         # init tensors
+#         rollout_rewards = torch.zeros(max_rollout_len, device=device)
+#         rollout_logprobs = torch.zeros(max_rollout_len, device=device)
+#         rollout_states = torch.zeros(states_len, nstates, device=device)
+#         if return_actions: 
+#             rollout_actions = torch.zeros(max_rollout_len, device=device)
+        
+#         # rollout_actions
+#         state, _ = env.reset()
+
+#         state = torch.from_numpy(state).float().to(device)
+
+#         if include_init_state: 
+#             rollout_states[0].copy_(state)
+
+#         # generate a single rollout
+#         while i < max_rollout_len:
+#             next_action, logprob_next_action = policy(state)
+#             # Ensure action is detached before converting to numpy/float
+#             next_action_float = float(next_action.detach().cpu().numpy())
+#             next_state, r, _, _, _ = env.step([next_action_float])
+
+#             # Store data on the correct device
+#             rollout_rewards[i] = torch.tensor(float(r), device=device)
+#             rollout_logprobs[i] = logprob_next_action # Already on device from policy output
+            
+#             # Store the current state, not the next state
+#             state_idx = i if not include_init_state else i + 1
+#             rollout_states[state_idx].copy_(state)
+            
+#             if return_actions: 
+#                 rollout_actions[i] = next_action
+
+#             state = torch.from_numpy(next_state).float().to(device)
+#             i += 1
+
+#             if i == max_rollout_len:
+#                 if verbose and step and step % 100 == 0:
+#                     print(f"  Rollout {batch_idx}: length {i}, final reward {r:.2f}")
+
+#         # add tensor to list to stack later
+#         batch_rewards.append(rollout_rewards[:i])  # Only include actual steps taken
+#         batch_logprobs.append(rollout_logprobs[:i])
+        
+#         # For states, include one more state if include_init_state is True
+#         states_to_include = i + 1 if include_init_state else i
+#         batch_states.append(rollout_states[:states_to_include])
+        
+#         if return_actions: 
+#             batch_actions.append(rollout_actions[:i])
+
+#     # stack logprobs and r into two tensors, they are list of lists overall [b, mrl]
+#     # Tensors in the lists are already on the correct device
+#     batch_rewards = torch.stack(batch_rewards).to(device)
+#     batch_logprobs = torch.stack(batch_logprobs).to(device)
+#     batch_states = torch.stack(batch_states).to(device)
+#     if return_actions: 
+#         batch_actions = torch.stack(batch_actions).to(device)
+    
+#     if return_actions: 
+#         return batch_rewards, batch_logprobs, batch_states, batch_actions 
+#     else: 
+#         # [B, T], [B, T], [B, T+1, states] = [B, T+1 if include_init_state else T, 3]
+#         return batch_rewards, batch_logprobs, batch_states
+        
+
+
 def get_batch(
-    policy,
-    env,
-    nstates,
+    policy, env, nstates,
     b: int = 64,
     max_rollout_len: int = 200,
     verbose: bool = False,
     step: int = 0,
     return_actions: bool = False,
-    include_init_state: bool = False, 
+    include_init_state: bool = False,
+    device='cuda',
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
-    batch_rewards, batch_logprobs, batch_actions = [], [], []  # both will be [b, sm]
-    batch_states = []
 
-    if verbose and step % 5 == 0:
-        print(f"\nGenerating batch {step} of rollouts...")
+    all_rewards, all_logps, all_states, all_acts = [], [], [], []
 
-    for batch_idx in range(b):  # in contrast to dqn which stores a buffer where we may be learning from
-        i = 0
-
-        states_len = max_rollout_len + 1 if include_init_state else max_rollout_len
-
-        # init tensors
-        rollout_rewards = torch.zeros(max_rollout_len, device=device)
-        rollout_logprobs = torch.zeros(max_rollout_len, device=device)
-        rollout_states = torch.zeros(states_len, nstates, device=device)
-        if return_actions: 
-            rollout_actions = torch.zeros(max_rollout_len, device=device)
-        
-        # rollout_actions
+    policy = policy.to(device)
+    for _ in range(b):
+        # locally collect into Python lists
+        rewards, logps, states, acts = [], [], [], []
         state, _ = env.reset()
-
         state = torch.from_numpy(state).float().to(device)
+        if include_init_state:
+            states.append(state.cpu().numpy())
 
-        if include_init_state: 
-            rollout_states[0].copy_(state)
+        for t in range(max_rollout_len):
+            with torch.no_grad():
+                action, logp = policy(state)     # no_grad → no graph
+            # fastest way to get a Python float
+            a = action.item()
+            next_state, r, *_ = env.step([a])
 
-        # generate a single rollout
-        while i < max_rollout_len:
-            next_action, logprob_next_action = policy(state)
-            # Ensure action is detached before converting to numpy/float
-            next_action_float = float(next_action.detach().cpu().numpy())
-            next_state, r, _, _, _ = env.step([next_action_float])
-
-            # Store data on the correct device
-            rollout_rewards[i] = torch.tensor(float(r), device=device)
-            rollout_logprobs[i] = logprob_next_action # Already on device from policy output
-            
-            # Store the current state, not the next state
-            state_idx = i if not include_init_state else i + 1
-            rollout_states[state_idx].copy_(state)
-            
-            if return_actions: 
-                rollout_actions[i] = next_action
+            rewards.append(r)
+            logps.append(logp.cpu().unsqueeze(0))       # keep dims [1]
+            states.append(state.cpu().numpy())
+            if return_actions:
+                acts.append(a)
 
             state = torch.from_numpy(next_state).float().to(device)
-            i += 1
 
-            if i == max_rollout_len:
-                if verbose and step and step % 100 == 0:
-                    print(f"  Rollout {batch_idx}: length {i}, final reward {r:.2f}")
+        # convert the per‐rollout lists into tensors _once_
+        all_rewards.append(torch.tensor(rewards, device=device))
+        all_logps.append(torch.cat(logps, dim=0).to(device))
+        # Convert list of numpy arrays to a single numpy array first to avoid the warning
+        all_states.append(torch.tensor(np.array(states), device=device))
+        if return_actions:
+            all_acts.append(torch.tensor(acts, device=device))
 
-        # add tensor to list to stack later
-        batch_rewards.append(rollout_rewards[:i])  # Only include actual steps taken
-        batch_logprobs.append(rollout_logprobs[:i])
-        
-        # For states, include one more state if include_init_state is True
-        states_to_include = i + 1 if include_init_state else i
-        batch_states.append(rollout_states[:states_to_include])
-        
-        if return_actions: 
-            batch_actions.append(rollout_actions)
-
-    # stack logprobs and r into two tensors, they are list of lists overall [b, mrl]
-    # Tensors in the lists are already on the correct device
-    batch_rewards = torch.stack(batch_rewards)
-    batch_logprobs = torch.stack(batch_logprobs)
-    batch_states = torch.stack(batch_states)
-    if return_actions: 
-        batch_actions = torch.stack(batch_actions)
-    
-    if return_actions: 
-        return batch_rewards, batch_logprobs, batch_states, batch_actions 
-    else: 
-        # [B, T], [B, T], [B, T+1, states] = [B, T+1 if include_init_state else T, 3]
+    # stack rollouts into [B, T] or [B, T+1, S] tensors
+    batch_rewards = torch.stack(all_rewards)
+    batch_logprobs = torch.stack(all_logps)
+    batch_states = torch.stack(all_states)
+    if return_actions:
+        batch_actions = torch.stack(all_acts)
+        return batch_rewards, batch_logprobs, batch_states, batch_actions
+    else:
         return batch_rewards, batch_logprobs, batch_states
-        
-
+    
 def eval(policy, env, max_rollout_len: int = 200, b: int = 64): 
     batch_rewards = []
 
