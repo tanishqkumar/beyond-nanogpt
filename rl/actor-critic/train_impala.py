@@ -1,21 +1,36 @@
 '''
-(https://arxiv.org/pdf/1802.01561) IMPALA: Scalable Distributed Deep-RL with Importance Weighted
-Actor-Learner Architectures
+IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures
+Paper: https://arxiv.org/pdf/1802.01561
 
-Differences from A3C: 
-    - instead of writing local grads into global params, we decouple acting and learning
-        - acting = rollouts, learning = grads + step
-        - in a3c, local models (actors) are also the objects on which grads are computed (learners)
-        - in IMPALA, local models (actors) pass *only rollout batches, 
-            torch.stack([s, a, r])* to the learner (*global* model) which takes grads
+This implementation demonstrates the key architectural innovations of IMPALA:
 
-    - intuition for vtrace -- what needs correction, and why? 
-        - review of actor-critic math, A_t = G_t - V_t and why we want E_rollouts[G_t(s_t) - V_t(s_t)] = 0
+1. Decoupled Acting and Learning:
+   - Unlike A3C where actors compute gradients locally, IMPALA separates these roles
+   - Actors: Generate rollouts (state-action-reward trajectories)
+   - Learner: Single global model that processes batches and computes gradients
+   - Communication: Actors send only experience data (states, actions, rewards) to the learner
+   - This separation allows for better hardware utilization and throughput
 
-    - relation to LLM RL 
-        (decoupling acting and learning, doing policy-grad style stuff with half off policy rollouts)
+2. V-trace Correction:
+   - Problem: When actors and learner have different policies (due to asynchronous updates),
+     standard off-policy corrections can have high variance
+   - Solution: V-trace provides a stable importance sampling correction
+   - Reminder: In actor-critic, advantage A_t = G_t - V_t, where:
+     * G_t is the discounted return
+     * V_t is the value function estimate
+   - We want E[G_t - V_t] = 0 for unbiased value estimates
+   - V-trace ensures this property holds even with policy lag
 
-    # actors (fwd only, small bsz=1) on cpu, learners (fwd+bwd, large batch) on gpu 
+3. System Architecture:
+   - Actors: Run on CPU with small batch size (often 1), forward-pass only
+   - Learner: Runs on GPU with large batches, performs both forward and backward passes
+   - This division maximizes hardware utilization (CPU for parallel environment interaction,
+     GPU for compute-intensive learning)
+
+4. Relevance to LLM Reinforcement Learning:
+   - Modern LLM RL systems (like those used in ChatGPT) adopt similar actor-learner separation
+   - They also handle partially off-policy data, using techniques inspired by this approach
+   - The decoupled architecture scales to massive distributed systems needed for LLM training
 '''
 
 import os
@@ -179,9 +194,9 @@ def get_global_lps(batch_states: torch.Tensor, batch_actions: torch.Tensor, glob
     flat_actions = batch_actions.reshape(-1)
     
     # policy: nstates -> scalar
-    with torch.no_grad():
-        action_mean = global_policy._forward(states_for_actions).squeeze(-1)  # [B*T, 1]
-        action_std = torch.exp(global_policy.log_std)
+    # with torch.no_grad():
+    action_mean = global_policy._forward(states_for_actions).squeeze(-1)  # [B*T, 1]
+    action_std = torch.exp(global_policy.log_std)
     distb = torch.distributions.Normal(action_mean, action_std)
     
     # Get log probs and reshape to [B, T]
