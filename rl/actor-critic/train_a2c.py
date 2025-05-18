@@ -143,6 +143,7 @@ def get_batch(
     verbose: bool = False,
     step: int = 0,
     return_actions: bool = False,
+    include_init_state: bool = False, 
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
     batch_rewards, batch_logprobs, batch_actions = [], [], []  # both will be [b, sm]
     batch_states = []
@@ -153,10 +154,12 @@ def get_batch(
     for batch_idx in range(b):  # in contrast to dqn which stores a buffer where we may be learning from
         i = 0
 
+        states_len = max_rollout_len + 1 if include_init_state else max_rollout_len
+
         # init tensors
         rollout_rewards = torch.zeros(max_rollout_len, device=device)
         rollout_logprobs = torch.zeros(max_rollout_len, device=device)
-        rollout_states = torch.zeros(max_rollout_len, nstates, device=device)
+        rollout_states = torch.zeros(states_len, nstates, device=device)
         if return_actions: 
             rollout_actions = torch.zeros(max_rollout_len, device=device)
         
@@ -164,6 +167,10 @@ def get_batch(
         state, _ = env.reset()
 
         state = torch.from_numpy(state).float().to(device)
+
+        if include_init_state: 
+            rollout_states[0].copy_(state)
+
         # generate a single rollout
         while i < max_rollout_len:
             next_action, logprob_next_action = policy(state)
@@ -174,7 +181,11 @@ def get_batch(
             # Store data on the correct device
             rollout_rewards[i] = torch.tensor(float(r), device=device)
             rollout_logprobs[i] = logprob_next_action # Already on device from policy output
-            rollout_states[i].copy_(state) # state is already on device
+            
+            # Store the current state, not the next state
+            state_idx = i if not include_init_state else i + 1
+            rollout_states[state_idx].copy_(state)
+            
             if return_actions: 
                 rollout_actions[i] = next_action
 
@@ -186,9 +197,13 @@ def get_batch(
                     print(f"  Rollout {batch_idx}: length {i}, final reward {r:.2f}")
 
         # add tensor to list to stack later
-        batch_rewards.append(rollout_rewards)
-        batch_logprobs.append(rollout_logprobs)
-        batch_states.append(rollout_states)
+        batch_rewards.append(rollout_rewards[:i])  # Only include actual steps taken
+        batch_logprobs.append(rollout_logprobs[:i])
+        
+        # For states, include one more state if include_init_state is True
+        states_to_include = i + 1 if include_init_state else i
+        batch_states.append(rollout_states[:states_to_include])
+        
         if return_actions: 
             batch_actions.append(rollout_actions)
 
@@ -203,7 +218,7 @@ def get_batch(
     if return_actions: 
         return batch_rewards, batch_logprobs, batch_states, batch_actions 
     else: 
-        # [B, T], [B, T], [B, T, states] = [B, T, 3]
+        # [B, T], [B, T], [B, T+1, states] = [B, T+1 if include_init_state else T, 3]
         return batch_rewards, batch_logprobs, batch_states
         
 
