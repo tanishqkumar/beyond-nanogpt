@@ -19,15 +19,14 @@ Differences from A3C:
 '''
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
+import torch.multiprocessing as mp
 import gym
 import torch
 import torch.nn as nn, torch.nn.functional as F
 from tqdm import tqdm
+import time 
 import argparse
 import warnings
-import torch.multiprocessing as mp
 from dataclasses import dataclass
 from typing import Tuple, List, Optional 
 import math 
@@ -40,26 +39,26 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Conversion of an array with ndim > 0 to a scalar is deprecated")
 warnings.filterwarnings("ignore", message="`np.bool8` is a deprecated alias for `np.bool_`")
 
-# TODO: make sure actors on cpu and main thread on cuda 
+# Main process will use GPU, actors will use CPU
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 ## ACTOR LOGIC ##
 
 # avoid code bloat due to hypers/kwargs in workers by defining a dataclass
 @dataclass
-class ActorWorkerConfig: 
+class ActorConfig: 
     max_rollout_len: int = 200
     gamma: float = 0.99
     verbose: bool = False
     nstates: int = 3
     policy_hidden_dim: int = 32
     sync_freq: int = 10
-    max_actor_steps: int = 10_000
     eval_every: int = 20
 
 def _actor_worker(
-    worker_id: int, # TODO: use this to print if verbose 
-    global_actor_step: mp.Value, 
+    worker_id: int, 
+    global_learner_step: mp.Value, 
+    n_global_steps: int, 
     global_buffer_writelock: mp.Lock, 
     global_policy_net: nn.Module, 
     global_q_rewards: torch.Tensor, 
@@ -68,28 +67,31 @@ def _actor_worker(
     global_q_actions: torch.Tensor, 
     global_free_slots: mp.Queue, 
     global_filled_slots: mp.Queue, 
-    global_actor_to_sync: mp.Value, 
-    config: ActorWorkerConfig = ActorWorkerConfig(),
+    config: ActorConfig = ActorConfig(),
 ) -> None:
+    
+    # seed each worker
+    torch.manual_seed(worker_id)
     
     # make a separate env instance for each worker
     env = gym.make('Pendulum-v1')
+    env.reset(seed=worker_id)
     
-    local_policy = PolicyNet(hidden_dim=config.policy_hidden_dim, nstates=config.nstates).to(device)
+    # Ensure actors use CPU
+    local_policy = PolicyNet(hidden_dim=config.policy_hidden_dim, nstates=config.nstates).to('cpu')
 
     local_step = 0
-    while global_actor_step.value < config.max_actor_steps:
+    while global_learner_step.value < n_global_steps:
 
-        if local_step % 10 == 0: 
-            print(f'Getting rollouts in worker {worker_id}, local 
-                  step {local_step} and global step {global_actor_step.value}.')
+        if local_step % 100 == 0: 
+            print(f'Getting rollouts in worker {worker_id}, local step {local_step} and global step {global_learner_step.value}.')
     
-        with global_actor_step.get_lock():
-            global_actor_step.value += 1
-
-        if (local_step % config.sync_freq == 0) or global_actor_to_sync.value: 
+        if (local_step % config.sync_freq == 0): 
             # sync local model to global for rollouts to avoid being too stale 
-            local_policy.load_state_dict(global_policy_net.state_dict())
+            # Copy global model to CPU for the actor
+            with torch.no_grad():
+                for local_param, global_param in zip(local_policy.parameters(), global_policy_net.parameters()):
+                    local_param.copy_(global_param.cpu())
         
         # gets a single rollout as IMPALA desires 
         batch_rewards, batch_logprobs, batch_states, batch_actions = get_batch(
@@ -99,7 +101,7 @@ def _actor_worker(
             1, 
             config.max_rollout_len, 
             False, # set verbose = False as an arg (not kwarg)
-            global_actor_step.value, 
+            global_learner_step.value, 
             return_actions=True, 
             include_init_state=True, 
         )
@@ -144,10 +146,10 @@ def get_batch_from_buffers(
             slot = global_filled_slots.get()
             to_read_slots.append(slot)
 
-    batch_rewards = global_q_rewards[to_read_slots]
-    batch_local_lps = global_q_logprobs[to_read_slots]
-    batch_states = global_q_states[to_read_slots]
-    batch_actions = global_q_actions[to_read_slots]
+    batch_rewards = global_q_rewards[to_read_slots].clone()
+    batch_local_lps = global_q_logprobs[to_read_slots].clone()
+    batch_states = global_q_states[to_read_slots].clone()
+    batch_actions = global_q_actions[to_read_slots].clone()
 
     with global_slot_lock: 
         for used_slot in to_read_slots: 
@@ -161,19 +163,19 @@ def get_global_lps(batch_states: torch.Tensor, batch_actions: torch.Tensor, glob
     # states and actions are [B,T,3] and [B, T] resp
     # want the probs of the empirical actions 
     # policy(states) will be [B, T, nactions] logits 
-    global_policy = global_policy.cuda()
-    batch_states = batch_states.cuda()
-    batch_actions = batch_actions.cuda()
-    logits = global_policy(batch_states) # this is [B, T, nactions] and we want [B, T]
+    global_policy = global_policy.to('cuda')
+    batch_states = batch_states.to('cuda')
+    batch_actions = batch_actions.to('cuda')
+
+    B, T, nstates = batch_states.shape 
     
-    B, T = batch_actions.shape
+    logits = global_policy(batch_states.view(-1, nstates)).view(B, T, nstates) # this is [B, T, nactions] and we want [B, T]
+    lps = F.log_softmax(logits, dim=-1)
+    
     rb = torch.arange(B, device='cuda')[:, None]
     rt = torch.arange(T, device='cuda')
     
-    # [B, T] now, ready for log_softmax: logits -> logprobs 
-    selected_logits = logits[rb, rt, batch_actions] 
-    
-    return F.log_softmax(selected_logits, dim=-1) # [B, T] logprob under global policy for [state_ij -> action_ij]
+    return lps[rb, rt, batch_actions]  # [B, T] logprob under global policy for [state_ij -> action_ij]
 
 
 def loss_fn(global_policy, global_lps, vals, target_vals, adv, val_coeff=0.01, ent_coeff=1e-4, verbose=False): # first two are [b, ms]
@@ -182,19 +184,20 @@ def loss_fn(global_policy, global_lps, vals, target_vals, adv, val_coeff=0.01, e
     policy_loss_t = (-adv * global_lps).mean()
 
     # get loss to update value network so it's better at predicting returns
-    value_loss_t = F.mse_loss(vals, target_vals)
+    value_loss_t = F.mse_loss(vals[:, :-1], target_vals) # vals is [B, T+1] but target is [B, T]
 
     # compute entropy_loss_t using policy.log_std of action distribution
     # Proper entropy calculation for Normal distribution
     # Entropy of Normal(μ,σ) = 0.5 * log(2πeσ²)
-    action_std = torch.exp(global_policy.log_std) # this implies converence 
+    action_std = torch.exp(global_policy.log_std) 
     pi_tensor = torch.tensor(math.pi, device=action_std.device)
     entropy_loss_t = 0.5 * (torch.log(2 * pi_tensor * math.e * action_std.pow(2))).mean()
 
 
     # Print the magnitude of each loss component for monitoring/debugging
     if verbose: 
-        print(f"Policy Loss: {policy_loss_t.item():.4f}, Value Loss (x{val_coeff}): {value_loss_t.item():.4f}, Entropy Loss (x{ent_coeff}): {entropy_loss_t.item():.4f}")
+        print(f"Policy Loss: {policy_loss_t.item():.4f}, Value Loss (x{val_coeff}): \
+              {value_loss_t.item():.4f}, Entropy Loss (x{ent_coeff}): {entropy_loss_t.item():.4f}")
 
     return policy_loss_t + val_coeff * value_loss_t - ent_coeff * entropy_loss_t
 
@@ -203,7 +206,6 @@ def loss_fn(global_policy, global_lps, vals, target_vals, adv, val_coeff=0.01, e
 # TODO: understand the math more carefully here, maybe even rewrite this for intuition 
     # try vectorize the loop 
 def vtrace(
-    global_value_net: nn.Module, 
     global_lps: torch.Tensor, 
     local_lps: torch.Tensor, 
     values: torch.Tensor, 
@@ -244,7 +246,7 @@ def learner_step(
     global_opt_pol: torch.optim.Optimizer,
     global_opt_val: torch.optim.Optimizer,
     global_slot_lock: mp.Lock,
-    global_actor_step: mp.Value,
+    global_learner_step: mp.Value,
     buffers: Tuple[torch.Tensor], 
     global_free_slots: mp.Queue,
     global_filled_slots: mp.Queue,
@@ -252,15 +254,28 @@ def learner_step(
 ) -> None:
     
     batch_rewards, batch_local_lps, batch_states, batch_actions = get_batch_from_buffers(buffers, global_free_slots, global_filled_slots, global_slot_lock, big_bsz)
+    
+    # Move data to GPU for learner computation
+    batch_rewards = batch_rewards.to('cuda')
+    batch_local_lps = batch_local_lps.to('cuda')
+    batch_states = batch_states.to('cuda')
+    batch_actions = batch_actions.to('cuda')
+    
+    # Ensure models are on GPU
+    global_policy_net = global_policy_net.to('cuda')
+    global_value_net = global_value_net.to('cuda')
+    
     global_lps = get_global_lps(batch_states, batch_actions, global_policy_net) # fwd with global model getting logprobs of empirical actions 
     
     # vtrace basically adjusts for data being off-policy in an algorithm (actor critic, policy grad) that 
         # otherwise assumes data is generated on-policy (policy grad thm requires this)
         # other methods that use off-policy data (eg. DQN) don't assume/require policy gradient theorem
     # target_val is used as target in value network MSE computation, adv as advantage in policy loss
-    values = global_value_net(batch_states) # # now [B, T+1] because batch_states is [B, T+1]
+    
+    B, T, nstates = batch_states.shape
+    values = global_value_net(batch_states.view(-1, nstates)).view(B, T, nstates) # # now [B, T+1] because batch_states is [B, T+1]
+    
     target_vals, adv = vtrace(
-        global_value_net, 
         global_lps, 
         batch_local_lps, 
         values, 
@@ -273,11 +288,11 @@ def learner_step(
     global_opt_pol.zero_grad()
     global_opt_val.zero_grad()
 
-    loss = loss_fn(global_policy_net, global_lps, values, target_vals, adv)
+    loss = loss_fn(global_policy_net, global_lps, values[:, :-1], target_vals, adv)
     loss.backward()
     
-    if global_actor_step.value % 10 == 0: 
-        print(f'Main process computed loss {loss.item()} on global step {global_actor_step.value}.')    
+    if global_learner_step.value % 10 == 0: 
+        print(f'Main process computed loss {loss.item()} on global step {global_learner_step.value}.')    
 
     torch.nn.utils.clip_grad_norm_(global_policy_net.parameters(), clip_grad_norm)
     torch.nn.utils.clip_grad_norm_(global_value_net.parameters(), clip_grad_norm)
@@ -285,42 +300,41 @@ def learner_step(
     global_opt_pol.step()
     global_opt_val.step()
 
-
     return # broadcast global (policy, value) nets to actors after this 
 
 ## END LEARNER LOGIC ## 
 
 ## MAIN LOGIC ## 
 if __name__ == "__main__":
-    # TODOs: add syncing with barrier, guard in global reads/writes for emptyies, 
-    # there are also obviou bugs like actor order, etc
     parser = argparse.ArgumentParser(description='Train Actor-Critic on Pendulum')
-    parser.add_argument('--max_actor_steps', type=int, default=10_000, help='Maximum number of global steps')
-    parser.add_argument('--max_learner_steps', type=int, default=1_000, help='Maximum number of global steps')
-    parser.add_argument('--batch-size', type=int, default=128, help='Batch size for training')
+    parser.add_argument('--nsteps', type=int, default=10_000, help='Maximum number of learner steps/updates')
+    parser.add_argument('--batch-size', type=int, default=256, help='Batch size for training')
     parser.add_argument('--max-rollout-len', type=int, default=20, help='Maximum rollout length')
-    parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
+    parser.add_argument('--lr', type=float, default=5e-4, help='Learning rate')
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor')
     parser.add_argument('--policy-hidden-dim', type=int, default=64, help='Hidden dimension size for policy network')
     parser.add_argument('--value-hidden-dim', type=int, default=64, help='Hidden dimension size for value network')
-    parser.add_argument('--nactors', type=int, default=16, help='Number of parallel actor threads')
+    parser.add_argument('--nactors', type=int, default=int(os.cpu_count()/2), help='Number of parallel actor threads')
     parser.add_argument('--wandb', action='store_true', help='Use wandb logging')
-    parser.add_argument('--verbose', action='store_true', help='Print training progress')
-    parser.add_argument('--sync-freq', type=int, default=50, help='Frequency to sync local models with global model')
+    parser.add_argument('--verbose', action='store_true', help='Print detailed training progress and debugging information')
+    parser.add_argument('--sync-freq', type=int, default=1, help='Frequency to sync local models with global model')
     parser.add_argument('--eval_every', type=int, default=50, help='Frequency to eval')
-    parser.add_argument('--buffer_sz', type=int, default=1_000, help='Size of global shared buffers for rollouts')
-    parser.add_argument('--max-grad-norm', type=float, default=0.5, help='Maximum gradient norm for clipping')
+    parser.add_argument('--buffer_sz', type=int, default=10_000, help='Size of global shared buffers for rollouts')
+    parser.add_argument('--max-grad-norm', type=float, default=40.0, help='Maximum gradient norm for clipping')
 
     args = parser.parse_args()
 
     mp.set_start_method('spawn', force=True)
-
+    
+    # Ensure device is set to use GPU in main process
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"Main process using device: {device}")
 
     nstates = 3 # hardcode for pendulum 
     global_policy_net = PolicyNet(hidden_dim=args.policy_hidden_dim, nstates=nstates).to(device)
     global_value_net = ValueNet(hidden_dim=args.value_hidden_dim, nstates=nstates).to(device)
-    global_policy_net.share_memory_()
-    global_value_net.share_memory_()
+    global_policy_net.share_memory()
+    global_value_net.share_memory()
     
     global_opt_pol = torch.optim.AdamW(global_policy_net.parameters(), lr=args.lr)
     global_opt_val = torch.optim.AdamW(global_value_net.parameters(), lr=args.lr)
@@ -338,8 +352,7 @@ if __name__ == "__main__":
                 state[k] = v.share_memory_()
 
     # Create worker config with CLI args
-    actor_worker_config = ActorWorkerConfig(
-        max_actor_steps=args.max_actor_steps,
+    actor_worker_config = ActorConfig(
         max_rollout_len=args.max_rollout_len,
         gamma=args.gamma,
         verbose=args.verbose,
@@ -353,17 +366,18 @@ if __name__ == "__main__":
     all_procs = []
     global_buffer_writelock = mp.Lock()  
     global_slot_lock = mp.Lock()  
-    global_actor_step = mp.Value('i', 0)  
-    global_actor_to_sync = mp.Value('i', 0)  
+    global_learner_step = mp.Value('i', 0)  
 
-    global_q_rewards = torch.zeros(args.buffer_sz, args.max_rollout_len, device=device).share_memory_()
-    global_q_logprobs = torch.zeros(args.buffer_sz, args.max_rollout_len, device=device).share_memory_()
-    global_q_states = torch.zeros(args.buffer_sz, args.max_rollout_len + 1, nstates, device=device).share_memory_()
-    global_q_actions = torch.zeros(args.buffer_sz, args.max_rollout_len, device=device).share_memory_()
+    # Create shared buffers on CPU for actors to write to
+    global_q_rewards = torch.zeros(args.buffer_sz, args.max_rollout_len, device='cpu').share_memory_()
+    global_q_logprobs = torch.zeros(args.buffer_sz, args.max_rollout_len, device='cpu').share_memory_()
+    global_q_states = torch.zeros(args.buffer_sz, args.max_rollout_len + 1, nstates, device='cpu').share_memory_()
+    global_q_actions = torch.zeros(args.buffer_sz, args.max_rollout_len, device='cpu').share_memory_()
     
     global_free_slots = mp.Queue()
     global_filled_slots = mp.Queue()
     
+    # Initialize all slots as free
     for i in range(args.buffer_sz): 
         global_free_slots.put(i)
     
@@ -374,7 +388,8 @@ if __name__ == "__main__":
     )
     
     ACTOR_ARGS = (
-        global_actor_step,
+        global_learner_step,
+        args.nsteps,  
         global_buffer_writelock,
         global_policy_net,
         global_q_rewards,
@@ -383,45 +398,69 @@ if __name__ == "__main__":
         global_q_actions,
         global_free_slots,
         global_filled_slots,
-        global_actor_to_sync,
         actor_worker_config,
     )
     
+    # Start actor processes
+    if args.verbose: print(f"Starting {args.nactors} actor processes...")
     for worker_id in range(args.nactors): 
         p = mp.Process(target=_actor_worker, args=(worker_id, *ACTOR_ARGS))
         p.daemon = True 
         p.start()
         all_procs.append(p)
+        if args.verbose: print(f"Started actor process {worker_id}")
 
     
     ### learner/gpu/main thread logic here ###
     # one learner process, the main thread running on our gpu 
 
     LEARNER_ARGS = (
+        args.batch_size,
         global_policy_net,
         global_value_net,
         global_opt_pol,
         global_opt_val,
         global_slot_lock,
-        global_actor_step,
+        global_learner_step,
         buffers,
         global_free_slots,
         global_filled_slots,
         args.max_grad_norm,
     )
 
-    for step in range(args.max_learner_steps): 
+    
+    if args.verbose: print(f'Waiting for actors to get set up so buffer is populated...')
+    while global_filled_slots.empty():
+       time.sleep(0.1)
+       if args.verbose and int(time.time()) % 20 == 0: print(f"Still waiting for buffer to be populated...")
+    if args.verbose: print(f'Buffer is nonempty, beginning training with {global_filled_slots.qsize()} filled slots')
+
+    for step in range(args.nsteps): 
         if step % args.eval_every == 0: 
             env = gym.make('Pendulum-v1')
+            if args.verbose: print(f"Starting evaluation at step {step}...")
+            # Move policy to CPU for evaluation
+            global_policy_net = global_policy_net.to('cpu')
             avg_r = eval(global_policy_net, env)
+            # Move policy back to GPU after evaluation
+            global_policy_net = global_policy_net.to(device)
             if args.verbose: 
                 print(f'On step {step}, average reward in main process is {avg_r}.')
+                print(f'Buffer status: {global_filled_slots.qsize()} filled, {global_free_slots.qsize()} free slots')
+            env.close()  # Close the environment after evaluation
+        
+        if args.verbose and step % 10 == 0: 
+            print(f"Starting learner step {step}/{args.nsteps}...")
+        
         learner_step(*LEARNER_ARGS) 
-        # TODO: wait until workers synced using a barrier 
-
-
+        global_learner_step.value = step + 1  # Increment by 1 to match actual step count
+        
+        if args.verbose and step % 10 == 0:
+            print(f"Completed learner step {step}")
     ### learner/gpu/main thread logic here ###            
     
     # cleanup 
+    if args.verbose: print("Training complete, joining actor processes...")
     for p in all_procs:
         p.join()
+        if args.verbose: print(f"Process {p.pid} joined")
