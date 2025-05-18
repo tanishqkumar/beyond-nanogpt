@@ -2,24 +2,33 @@
 IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures
 Paper: https://arxiv.org/pdf/1802.01561
 
-This implementation demonstrates the key architectural innovations of IMPALA:
-
 1. Decoupled Acting and Learning:
-   - Unlike A3C where actors compute gradients locally, IMPALA separates these roles
-   - Actors: Generate rollouts (state-action-reward trajectories)
-   - Learner: Single global model that processes batches and computes gradients
-   - Communication: Actors send only experience data (states, actions, rewards) to the learner
-   - This separation allows for better hardware utilization and throughput
+   - Unlike A3C where actors compute gradients locally then copy those onto the global parameters
+        IMPALA merely computes rollouts and sends *those* (not grads) to a global buffer
+        It's logically the same as the producer-consumer dataloader, where workers (actors) feed a global source
+            that then other workers (here, the learner, on gpu) consumes from in large batches 
+
+    - Crucially, learner is on GPU because it does [large batch fwd + bwd] whereas the actors only do 
+    [small batch fwd] (and not bwd since grads only exist on learner process). 
+    - The upshot of this is higher throughput/hardware utilization. Plus, I personally found the idea of 
+    doine .grad.clone() from actor to global kind of disgusting (what is done in a3c)
 
 2. V-trace Correction:
-   - Problem: When actors and learner have different policies (due to asynchronous updates),
-     standard off-policy corrections can have high variance
-   - Solution: V-trace provides a stable importance sampling correction
-   - Reminder: In actor-critic, advantage A_t = G_t - V_t, where:
-     * G_t is the discounted return
-     * V_t is the value function estimate
-   - We want E[G_t - V_t] = 0 for unbiased value estimates
-   - V-trace ensures this property holds even with policy lag
+   - Problem: Deriving standard policy gradient theorem (eg. REINFORCE) assumes updates are on-policy, 
+   ie. rollouts done by model we're updating. That is not true here. 
+    --> example: consider a single state bandit, with state s, where a1 gets reward 10 and a2 gets reward 0. Suppose
+      the actor is sufficiently stale/off-policy that pi_1 (actor worker) puts 95% prob on a2, but 
+      the learner, pi_2, has learned to put 95% prob on a1. 
+        --> Then based on the rollouts, we'll see that under the acting policy pi_1, the state s is 
+        V^pi_2(s) ~ 0, simply because we (policy grad thm) assumes pi_1 = pi_2 (on-policy), and 
+        pi_1 almost never encounters reward in rollouts. So, if we upweight the reward with a factor of 
+        pi_1(a1)/pi_2(a1) which is exactly what v-trace does, then we get a *huge* amount of reward, enough to 
+        make V^pi_2(s)>>0, which is correct. 
+    --> This is basically a big band-aid on the off-policy problem. The clipping is to make optimization 
+    stable, and the product is because we want to correct entire rollouts, not just single actions. 
+   
+   In short, V-trace provides a stable importance sampling correction to account for the fact that
+   we go slightly off-policy to get higher hardware utilization. 
 
 3. System Architecture:
    - Actors: Run on CPU with small batch size (often 1), forward-pass only
@@ -28,8 +37,12 @@ This implementation demonstrates the key architectural innovations of IMPALA:
      GPU for compute-intensive learning)
 
 4. Relevance to LLM Reinforcement Learning:
-   - Modern LLM RL systems (like those used in ChatGPT) adopt similar actor-learner separation
-   - They also handle partially off-policy data, using techniques inspired by this approach
+   - I don't work on a lab, but my understanding is that modern LLM systems scale RL in a similar way -- 
+    they have one cluster with hardware optimized for inference doing a lot of rollouts and writing them to some buffer 
+        and another cluster optimized for training and large batches consuming from those rollouts, correcting somehow 
+        for the small amount of staleness/off-policy (like V-trace does), and updating the central model 
+        generating the rollouts in the first place. 
+
    - The decoupled architecture scales to massive distributed systems needed for LLM training
 '''
 
@@ -54,7 +67,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Conversion of an array with ndim > 0 to a scalar is deprecated")
 warnings.filterwarnings("ignore", message="`np.bool8` is a deprecated alias for `np.bool_`")
 
-# Main process will use GPU, actors will use CPU
+# main process will use GPU, actors will use CPU
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 ## ACTOR LOGIC ##
@@ -92,7 +105,7 @@ def _actor_worker(
     env = gym.make('Pendulum-v1')
     env.reset(seed=worker_id)
     
-    # Ensure actors use CPU
+    # ensure actors use CPU
     local_policy = PolicyNet(hidden_dim=config.policy_hidden_dim, nstates=config.nstates).to('cpu')
 
     local_step = 0
@@ -103,7 +116,7 @@ def _actor_worker(
     
         if (local_step % config.sync_freq == 0): 
             # sync local model to global for rollouts to avoid being too stale 
-            # Copy global model to CPU for the actor
+            # copy global model to CPU for the actor
             with torch.no_grad():
                 for local_param, global_param in zip(local_policy.parameters(), global_policy_net.parameters()):
                     local_param.copy_(global_param.cpu())
@@ -134,7 +147,7 @@ def _actor_worker(
 
         local_step += 1
 
-    # Close environment when done
+    # close environment when done
     env.close()
 
 
@@ -188,8 +201,8 @@ def get_global_lps(batch_states: torch.Tensor, batch_actions: torch.Tensor, glob
     B, T1, nstates = batch_states.shape 
     T = T1 - 1  # T is one less than T1
     
-    # We only need states for timesteps where we have actions
-    # Actions are [B, T] so we use states[:, :T1-1]
+    # we only need states for timesteps where we have actions
+    # actions are [B, T] so we use states[:, :T1-1]
     states_for_actions = batch_states[:, :T1-1].reshape(-1, nstates)
     flat_actions = batch_actions.reshape(-1)
     
@@ -199,7 +212,7 @@ def get_global_lps(batch_states: torch.Tensor, batch_actions: torch.Tensor, glob
     action_std = torch.exp(global_policy.log_std)
     distb = torch.distributions.Normal(action_mean, action_std)
     
-    # Get log probs and reshape to [B, T]
+    # get log probs and reshape to [B, T]
     log_probs = distb.log_prob(flat_actions).squeeze(-1)
 
     return log_probs.view(B, T)  # [B, T] of logprobs
@@ -214,14 +227,14 @@ def loss_fn(global_policy, global_lps, vals, target_vals, adv, val_coeff=0.01, e
     value_loss_t = F.mse_loss(vals, target_vals) # vals is [B, T] but target is [B, T]
 
     # compute entropy_loss_t using policy.log_std of action distribution
-    # Proper entropy calculation for Normal distribution
-    # Entropy of Normal(μ,σ) = 0.5 * log(2πeσ²)
+    # proper entropy calculation for Normal distribution
+    # entropy of Normal(μ,σ) = 0.5 * log(2πeσ²)
     action_std = torch.exp(global_policy.log_std) 
     pi_tensor = torch.tensor(math.pi, device=action_std.device)
     entropy_loss_t = 0.5 * (torch.log(2 * pi_tensor * math.e * action_std.pow(2))).mean()
 
 
-    # Print the magnitude of each loss component for monitoring/debugging
+    # print the magnitude of each loss component for monitoring/debugging
     if verbose: 
         print(f"Policy Loss: {policy_loss_t.item():.4f}, Value Loss (x{val_coeff}): \
               {value_loss_t.item():.4f}, Entropy Loss (x{ent_coeff}): {entropy_loss_t.item():.4f}")
@@ -230,8 +243,6 @@ def loss_fn(global_policy, global_lps, vals, target_vals, adv, val_coeff=0.01, e
 
 
 # outputs G_t, A_t for loss compuation, both are [B, T], more intuition on the math behind vtrace at the top of this file 
-# TODO: understand the math more carefully here, maybe even rewrite this for intuition 
-    # try vectorize the loop 
 def vtrace(
     global_lps: torch.Tensor, 
     local_lps: torch.Tensor, 
@@ -282,13 +293,13 @@ def learner_step(
     
     batch_rewards, batch_local_lps, batch_states, batch_actions = get_batch_from_buffers(buffers, global_free_slots, global_filled_slots, global_slot_lock, big_bsz)
     
-    # Move data to GPU for learner computation
+    # move data to GPU for learner computation
     batch_rewards = batch_rewards.to('cuda')
     batch_local_lps = batch_local_lps.to('cuda')
     batch_states = batch_states.to('cuda')
     batch_actions = batch_actions.to('cuda')
     
-    # Ensure models are on GPU
+    # ensure models are on GPU
     global_policy_net = global_policy_net.to('cuda')
     global_value_net = global_value_net.to('cuda')
     
@@ -353,7 +364,7 @@ if __name__ == "__main__":
 
     mp.set_start_method('spawn', force=True)
     
-    # Ensure device is set to use GPU in main process
+    # ensure device is set to use GPU in main process
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Main process using device: {device}")
 
@@ -378,7 +389,7 @@ if __name__ == "__main__":
             if torch.is_tensor(v): 
                 state[k] = v.share_memory_()
 
-    # Create worker config with CLI args
+    # create worker config with CLI args
     actor_worker_config = ActorConfig(
         max_rollout_len=args.max_rollout_len,
         gamma=args.gamma,
@@ -395,7 +406,7 @@ if __name__ == "__main__":
     global_slot_lock = mp.Lock()  
     global_learner_step = mp.Value('i', 0)  
 
-    # Create shared buffers on CPU for actors to write to
+    # create shared buffers on CPU for actors to write to
     global_q_rewards = torch.zeros(args.buffer_sz, args.max_rollout_len, device='cpu').share_memory_()
     global_q_logprobs = torch.zeros(args.buffer_sz, args.max_rollout_len, device='cpu').share_memory_()
     global_q_states = torch.zeros(args.buffer_sz, args.max_rollout_len + 1, nstates, device='cpu').share_memory_()
@@ -404,7 +415,7 @@ if __name__ == "__main__":
     global_free_slots = mp.Queue()
     global_filled_slots = mp.Queue()
     
-    # Initialize all slots as free
+    # initialize all slots as free
     for i in range(args.buffer_sz): 
         global_free_slots.put(i)
     
@@ -428,7 +439,7 @@ if __name__ == "__main__":
         actor_worker_config,
     )
     
-    # Start actor processes
+    # start actor processes
     if args.verbose: print(f"Starting {args.nactors} actor processes...")
     for worker_id in range(args.nactors): 
         p = mp.Process(target=_actor_worker, args=(worker_id, *ACTOR_ARGS))
@@ -467,17 +478,17 @@ if __name__ == "__main__":
         if step > 0 and step % args.eval_every == 0: 
             env = gym.make('Pendulum-v1')
             if args.verbose: print(f"Starting evaluation at step {step}...")
-            avg_r = eval(global_policy_net, env)  # Evaluate using GPU model
+            avg_r = eval(global_policy_net, env)  # evaluate using GPU model
             if args.verbose: 
                 print(f'On step {step}, average reward in main process is {avg_r}.')
                 print(f'Buffer status: {global_filled_slots.qsize()} filled, {global_free_slots.qsize()} free slots')
-            env.close()  # Close the environment after evaluation
+            env.close()  # close the environment after evaluation
         
         if args.verbose and step % 10 == 0: 
             print(f"Starting learner step {step}/{args.nsteps}...")
         
         learner_step(*LEARNER_ARGS) 
-        global_learner_step.value = step + 1  # Increment by 1 to match actual step count
+        global_learner_step.value = step + 1  # increment by 1 to match actual step count
     
         
         if args.verbose and step % 10 == 0:
