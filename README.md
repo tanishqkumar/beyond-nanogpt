@@ -67,7 +67,6 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 ### Architectures
 - [x] Vanilla causal Transformer for language modeling (starting point) `language-models/train_naive.py`
 - [x] Vision Transformer (ViT) `architectures/train_vit.py`
-- [ ] Shifted Windows Transformer (SWin) 
 - [x] Diffusion Transformer (DiT) `architectures/train_dit.py`
 - [x] Recurrent Neural Network (RNN) `architectures/train_rnn.py` 
 - [x] Residual Networks (ResNet) `architectures/train_resnet.py`
@@ -133,6 +132,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 ### MLSys 
 - [ ] Communication collectives (scatter, gather, ring/tree allreduce)
 - [ ] Minimal FSDP re-implementation (data and tensor parallelism)
+- [ ] GPipe (pipeline parallelism)
 - [ ] Ring Attention
 - [ ] Paged Attention
 - [ ] Flash Attention in Triton 
