@@ -37,7 +37,7 @@ env = gym.make('CartPole-v1')
 
 # our action policy is just an mlp since this is a really simple task, obviously a policy 
 # goes from states -> actions where we choose the action by taking argmax over actions or sampling 
-class PolicyNet(nn.Module): 
+class QNet(nn.Module): 
     def __init__(self, nstates=4, nactions=2, hidden_dim=128, act=nn.GELU()): 
         super().__init__()
         self.w1 = nn.Linear(nstates, hidden_dim)
@@ -134,8 +134,8 @@ def train(epochs=4000, max_buffer_sz=10000, lr=0.0001, epsilon_final=0.01,
           train_batch_sz=512, rollout_batch_sz=128, reset_target=100, verbose=False):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    policy_net = PolicyNet().to(device)
-    target_net = PolicyNet().to(device)
+    policy_net = QNet().to(device)
+    target_net = QNet().to(device)
 
     buffer = ReplayBuffer(max_buffer_sz)
     opt = torch.optim.Adam(policy_net.parameters(), lr=lr)
