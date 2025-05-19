@@ -1,9 +1,20 @@
 # Lessons from the Trenches 
 
-- The objective function is paramount - work in generative modeling makes this especially clear.
-- Inter-CPU communications are simplified due to shared memory architecture.
+- The objective function is paramount. People often focus on the architecture, algorithmic 
+innovations, even the data, but really most seminal papers in deep learning are just new objectives to train on that make neural models particularly 
+useful or well-behaved. Work in generative modeling/vision makes this particularly clear -- if you come from an LLM background this is definitely 
+not obvious because you're only ever meaningfully exposed to next token prediction, so you think there's no room for innovation/alpha on the objective 
+front, but actually it's the most important thing to innovate on outside of LLM-land. 
+    - Even in LLM land, when it comes to RL, reward shaping and model design are just different ways of designing the objective for an RL algorithm to 
+    hillclimb, it's exactly the same thing. 
+- Inter-CPU communications are simplified due to shared memory architecture. This is why `multiprocessing` is so easy to use but inter-GPU communications
+are relatively painful (both to write code for and performance-wise), because GPUs have their own memory space. 
+- When using multi-CPUs, make sure to put big objects on `torch.share_memory` instead of passing them through `mp.Queue` which has a comm 
+overhead that share memory doesn't. Instead, use queues to pass around indices or slots sparingly, that tell functions where in shared 
+memory to read/write. 
 - Avoid repeated `torch.tensor(x)` calls; instead, preallocate tensors and index into them when possible.
-- Fast implementations minimize loops by leveraging torch native functions that are highly optimized (e.g., cumsum, bmm). For instance, expressing convolutions as `F.unfold + bmm` rather than looping over kernel windows.
+- Fast implementations minimize loops by leveraging torch native functions that are highly optimized (e.g., cumsum, bmm). For instance, expressing convolutions as `F.unfold + bmm` rather than looping over kernel windows. Often you can get a 10x performance gain by just stepping back and asking which vanilla python functions 
+in the code can be rewritten as native torch functions. 
 - Many operations can be expressed differently for efficiency - convolution operations are particularly flexible. Operations that might seem to require loops can often be implemented as clever convolutions with specific matrices. With practice, recognizing when to express linear operations as convolutions becomes intuitive.
 - Sometimes code provides more clarity than mathematical notation. For example, the reparameterization trick (which looks complex mathematically) is simply `z * sqrt(std) + mean` where we differentiate through mean/std parameters ("differentiating through sampling").
 - Broadcasting is critically important - for example, using arrays of different dimensions to extract indices like `[b, s, t] -> [b, s]` for label extraction.
