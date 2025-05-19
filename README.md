@@ -106,7 +106,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
       - [x] Advantage Actor-Critic (A2C) `train_a2c.py`
       - [x] Asynchronous Advantage Actor-Critic (A3C) `train_a3c.py` 
       - [x] IMPALA (distributed RL) `train_impala.py` 
-      - [ ] Deep Deterministic Policy Gradient (DDPG)
+      - [x] Deep Deterministic Policy Gradient (DDPG) `train_ddpg.py` 
       - [ ] Soft Actor-Critic (SAC)
    - Model-based RL 
       - [ ] Probabilistic Ensembles with Trajectory Sampling (PETS)
@@ -126,7 +126,6 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
    - [x] Train an autoencoder for reconstruction `generative-models/train_autoencoder.py` 
 - [ ] Neural Radiance Fields (NeRF)
 - [x] Image generation with a denoising diffusion U-Net (DDPM) `generative-models/train_ddpm.py` 
-- [ ] Latent Diffusion 
 - [x] Classifier-based diffusion guidance `generative-models/ddpm_classifier_guidance.py`
    - [x] Classifier-free diffusion guidance `generative-models/ddpm_classifier_free_guidance.py`
 - [x] Flow matching `generative-models/train_flow_matching.py`
