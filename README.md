@@ -13,6 +13,8 @@ The repo implements everything from KV caching and speculative decoding for LLMs
 architectures like vision transformers and MLP-mixers to attention variants like linear or grouped-query attention
 to generative models like VAEs and denoising diffusion models.  **Because everything is implemented by-hand, the code comments explain the especially subtle details often glossed over both in papers and production codebases.**
 
+`LESSONS.md` documents some of the things I've learned in the months spent writing this codebase. 
+
 <p align="center">
   <span style="display: inline-block; text-align: center; margin: 0 10px;">
     <a href="https://github.com/user-attachments/assets/e49fad0a-f51b-4771-a59a-f5d6a969f8ed">
