@@ -2,36 +2,39 @@
 (https://arxiv.org/pdf/1801.01290) Soft Actor-Critic: Off-Policy 
                     Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor
 
-Changes to go from DDPG -> SAC: 
-    - Adding noise at rollouts is crude, we want some more structured "learned diversity" 
-        -> Fix: use entropy term in loss and stochastic policy (diff from DDPG)
-        Motivation: SAC actually redefines its notion of value. Rather than Q(s,a) being the 
-        action-value of (s,a), we now hypothesize that being in a state where pi(_|s) has high entropy is 
-        to some extent *inherently valuable* because it increases future exploration. This means 
-        where before we had just Q(s,a) (or max_a Q(s,a) or Q(s, mu(s)), etc) in both the actor/critic 
-        losses, we'll now have [Q(s,a) + k * H(log pi(_|s))] where k is a hyperparam constant. 
-        -> 
+TLDR: 
+    Compared to DDPG, SAC adds entropy terms to actor/critic loss, uses double Q networks 
+    to fix value overestimation bias, 
+    and also makes policy stochastic again and uses reparam trick as usual. 
 
-    
-    - Two critics instead of one, and we use min(Q1, Q2) to compute targets 
-        - Both are trained with E[Q(s, mu(s))] as usual 
-        - Motivation: usual actor critic methods, incl A2C and DDPG, are known to suffer from 
-            the max_a Q(s,a) being too large when Q is being learned, ie. an overestimate. This was 
-            pointed out in several other papers as well, leading to the "double DQN" paper that identifies 
-            this problem and introduces the notion of using two Q-networks and using the min of the two Q-values. 
-            SAC simply ports this double DQN innovation into continuous world (DDPG). 
+In more detail: 
+
+    The changes to go from DDPG -> SAC are: 
+        - Adding noise at rollouts is crude, we want some more structured "learned diversity" 
+            -> Fix: use entropy term in loss and stochastic policy (diff from DDPG)
+            Motivation: SAC actually redefines its notion of value. Rather than Q(s,a) being the 
+            action-value of (s,a), we now hypothesize that being in a state where pi(_|s) has high entropy is 
+            to some extent *inherently valuable* because it increases future exploration. This means 
+            where before we had just Q(s,a) (or max_a Q(s,a) or Q(s, mu(s)), etc) in both the actor/critic 
+            losses, we'll now have [Q(s,a) + k * H(log pi(_|s))] where k is a hyperparam constant. 
+        
+        - Two critics instead of one, and we use min(Q1, Q2) to compute targets 
+            - Both are trained with E[Q(s, mu(s))] as usual 
+            - Motivation: usual actor critic methods, incl A2C and DDPG, are known to suffer from 
+                the max_a Q(s,a) being too large when Q is being learned, ie. an overestimate. This was 
+                pointed out in several other papers as well, leading to the "double DQN" paper that identifies 
+                this problem and introduces the notion of using two Q-networks and using the min of the two Q-values. 
+                SAC simply ports this double DQN innovation into continuous world (DDPG). 
 
 BTW, it's easy to forget for more involved actor-critic method like DDPG/SAC, but remember all these 
 methods only use the actor (policy) at inference-time. The critic (value nets) -- no matter how fancy their training -- 
 are just tools to reduce variance in gradient updates for the actor. We don't use the trained Q-networks at inference time 
-(contrast this with DQN, where obviously the policy we use is entirely determined by the learned Q-network). Hence, 
-DDPG/SAC are squarely "actor-critic" rather than Q-learning methods, even though there is learning of Q functions involved. 
-    It's important to typecheck these things in one's head!
+(contrast this with DQN, where obviously the policy we use is entirely determined by the learned Q-network). 
 '''
 
 import gym 
 import torch
-import torch.nn as nn
+import torch.nn as nn, torch.nn.functional as F
 from tqdm import tqdm 
 import argparse
 import warnings 
@@ -148,7 +151,7 @@ class ReplayBuffer:
 # Bellman MSE to learn the right Q-value function using q_net1
     # policy_net, the actor, gets its grads in a separate loss fn doing 
     # gradient ascent on E[Q(s, policy(s))] since it's deterministic 
-def critic_loss_fn(sartd, q_net1, q_net2, policy_net_target, q_net_target1, q_net_target2, gamma=0.995): 
+def get_critic_targets(sartd, policy_net_target, q_net_target1, q_net_target2, alpha=0.2, gamma=0.995): 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     states, actions, rewards, next_states, dones = sartd # unpack 
     
@@ -160,30 +163,28 @@ def critic_loss_fn(sartd, q_net1, q_net2, policy_net_target, q_net_target1, q_ne
     
     # twin critics to avoid overestimation 
     with torch.no_grad(): 
-        mu = policy_net_target(next_states) # [b] actions
+        _, lps, mu, _ = policy_net_target.sample(next_states) # [b] actions
         qtargets1 = q_net_target1(next_states, mu) 
         qtargets2 = q_net_target2(next_states, mu)
-        mintargets = torch.min(qtargets1, qtargets2)
+        q_targ = torch.min(qtargets1, qtargets2)
 
-    targets = rewards + gamma * (1 - dones) * mintargets 
     
-    if qtargets1 > qtargets2: # 2 is min 
-        return ((q_net2(states, actions) - targets)**2).mean()
-    else: 
-        return ((q_net1(states, actions) - targets)**2).mean()
+    targets = rewards + gamma * (1 - dones) * (q_targ - alpha * lps) 
+    return states, actions, targets 
+    
 
 # gradient descent on -Q(s, policy(s)).mean()
-def actor_loss_fn(sartd, q_net1, q_net2, policy_net): 
+def actor_loss_fn(sartd, q_net1, q_net2, policy_net, alpha=0.2): 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     states, _, _, _, _ = sartd # unpack only states
     
     states = states.to(device)
-    mu = policy_net(states)
+    _, lps, mu, _ = policy_net.sample(states)
 
     # twin critics in SAC 
-    mean1 = q_net1(states, mu).mean()
-    mean2 = q_net2(states, mu).mean()
-    return -torch.min(mean1, mean2) # [b] -> scalar
+    mean1 = q_net1(states, mu)
+    mean2 = q_net2(states, mu)
+    return (alpha * lps - torch.min(mean1, mean2)).mean() # [b] -> scalar
 
 # function to evaluate the current policy, infra, not important conceptually
 def eval_policy(policy_net, n_episodes=5):
@@ -222,6 +223,7 @@ def train(
     rollout_batch_sz=64,
     verbose=False, 
     target_ema=0.995,
+    alpha=0.2,  
 ):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -295,7 +297,14 @@ def train(
         for i in range(num_updates_per_step): 
             batch = buffer.get_batch(train_batch_sz)
 
-            critic_loss = critic_loss_fn(batch, q_net1, q_net2, policy_net_target, q_net_target1, q_net_target2)
+            states, actions, critic_targets = get_critic_targets(batch, q_net1, q_net2, policy_net_target, q_net_target1, q_net_target2, alpha=alpha)
+            qpred1 = q_net1(states, actions)
+            qpred2 = q_net2(states, actions)
+            
+            # weight both qnetwork losses equally, note that while predictions come from true nets, the targets in 
+                # the labels, y, that we compare to, come from the shadow target networks 
+            critic_loss = F.mse_loss(qpred1, critic_targets) + F.mse_loss(qpred2, critic_targets)
+
             critic_loss.backward()
             torch.nn.utils.clip_grad_norm_(q_net1.parameters(), max_norm=1.0)
             torch.nn.utils.clip_grad_norm_(q_net2.parameters(), max_norm=1.0)
