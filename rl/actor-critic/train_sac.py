@@ -76,16 +76,19 @@ class PolicyNet(nn.Module):
         log_std = self.w2_logstd(h).squeeze(-1)
         std = log_std.exp()
         distb = torch.distributions.Normal(mean, std)
-        z = distb.sample()
-        action = torch.tanh(z) # squash to be reasonable, ie. soft clamp 
+        z = distb.rsample()
+        action = torch.tanh(z) * 2. # squash to be reasonable, ie. soft clamp, 2 is for our action space 
 
         # want to also return logprobs of these actions
-            # but have to correct closed-form gaussian logprob for tanh 
-            # its known how to do this correction online, i just copied it 
+        # but have to correct closed-form gaussian logprob for tanh squashing
+        # this correction is needed because tanh squashes the distribution
         log_p = distb.log_prob(z)
-        log_p = log_p.sum(dim=-1, keepdim=True)
-        # subtract fat term to correct logprob for tanh squash 
-        log_p = log_p - (2*(z - action + eps).abs().exp().log()).sum(dim=-1, keepdim=True)
+        # Since z is already [b] (batch dimension), we don't need to sum over dimensions
+        # Just ensure log_p has the right shape for return value consistency
+        # subtract correction term to account for tanh squashing
+        # the correction accounts for the change of variables when transforming through tanh
+        # formula: log_prob(tanh(z)) = log_prob(z) - sum(log(1 - tanh(z)^2))
+        log_p = log_p - torch.log(1 - torch.tanh(z).pow(2) + eps)
 
         return action, log_p, mean, log_std 
 
@@ -151,8 +154,10 @@ class ReplayBuffer:
 # Bellman MSE to learn the right Q-value function using q_net1
     # policy_net, the actor, gets its grads in a separate loss fn doing 
     # gradient ascent on E[Q(s, policy(s))] since it's deterministic 
-def get_critic_targets(sartd, policy_net_target, q_net_target1, q_net_target2, alpha=0.2, gamma=0.995): 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+def get_critic_targets(sartd, policy_net_target, q_net_target1, q_net_target2, alpha=0.2, gamma=0.995, device=None): 
+    if device is None:
+        device = next(policy_net_target.parameters()).device
+    
     states, actions, rewards, next_states, dones = sartd # unpack 
     
     states = states.to(device) # [batch, nstates]
@@ -163,48 +168,59 @@ def get_critic_targets(sartd, policy_net_target, q_net_target1, q_net_target2, a
     
     # twin critics to avoid overestimation 
     with torch.no_grad(): 
-        _, lps, mu, _ = policy_net_target.sample(next_states) # [b] actions
-        qtargets1 = q_net_target1(next_states, mu) 
-        qtargets2 = q_net_target2(next_states, mu)
-        q_targ = torch.min(qtargets1, qtargets2)
+        a, lps, _, _ = policy_net_target.sample(next_states) # [b] actions
+        qtargets1 = q_net_target1(next_states, a) 
+        qtargets2 = q_net_target2(next_states, a)
+        q_targ = torch.min(qtargets1, qtargets2) - alpha * lps
 
     
-    targets = rewards + gamma * (1 - dones) * (q_targ - alpha * lps) 
+    targets = rewards + gamma * (1 - dones) * q_targ 
     return states, actions, targets 
     
 
 # gradient descent on -Q(s, policy(s)).mean()
-def actor_loss_fn(sartd, q_net1, q_net2, policy_net, alpha=0.2): 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+def actor_loss_fn(sartd, q_net1, q_net2, policy_net, alpha=0.2, device=None): 
+    if device is None:
+        device = next(policy_net.parameters()).device
+    
     states, _, _, _, _ = sartd # unpack only states
     
     states = states.to(device)
-    _, lps, mu, _ = policy_net.sample(states)
+    a, lps, _, _ = policy_net.sample(states)
+    # to clarify: what is the diff bw actions, a, here and in sartd? 
+        # --> a here is on-policy, actions in sartd is from past rollouts 
+        # using past rollouts is fine for training the critic (remember, dqn is off-policy)
+        # but NOT for the on-policy actor. 
+    
 
     # twin critics in SAC 
-    mean1 = q_net1(states, mu)
-    mean2 = q_net2(states, mu)
+    mean1 = q_net1(states, a)
+    mean2 = q_net2(states, a)
     return (alpha * lps - torch.min(mean1, mean2)).mean() # [b] -> scalar
 
 # function to evaluate the current policy, infra, not important conceptually
-def eval_policy(policy_net, n_episodes=5):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def eval_policy(policy_net, n_episodes=5, device=None):
+    if device is None:
+        device = next(policy_net.parameters()).device
+    
     eval_env = gym.make('Pendulum-v1')
     total_reward = 0
     
     for _ in range(n_episodes):
         state, _ = eval_env.reset()
-        state = torch.tensor(state)
+        state = torch.tensor(state, device=device)
         done = False
         episode_reward = 0
         
         while not done:
             with torch.no_grad():
-                action = policy_net(state.to(device)).cpu()
+                mu, _ = policy_net(state)
+                action = torch.tanh(mu) * 2.0 # don't sample at eval time, use mean as action 
+                action = action.cpu().item()
             
-            next_state, reward, terminated, truncated, _ = eval_env.step([action] if isinstance(action, float) else action)
+            next_state, reward, terminated, truncated, _ = eval_env.step([action])
             done = terminated or truncated
-            state = torch.tensor(next_state)
+            state = torch.tensor(next_state, device=device)
             episode_reward += reward
         
         total_reward += episode_reward
@@ -233,8 +249,12 @@ def train(
     q_net2 = QNet().to(device)
     buffer = ReplayBuffer(max_buffer_sz)
  
-    opt_critic = torch.optim.Adam(q_net1.parameters(), lr=critic_lr)
-    opt_critic.zero_grad()
+    opt_critic1 = torch.optim.Adam(q_net1.parameters(), lr=critic_lr)
+    opt_critic1.zero_grad()
+    opt_critic2 = torch.optim.Adam(q_net2.parameters(), lr=critic_lr)
+    opt_critic2.zero_grad()
+
+
     opt_actor = torch.optim.Adam(policy_net.parameters(), lr=actor_lr)
     opt_actor.zero_grad()
 
@@ -253,27 +273,32 @@ def train(
 
     ep_len_moving_avg = 0 
     for step in tqdm(range(nsteps), disable=not verbose): 
-        rollout_batch_states = torch.zeros(rollout_batch_sz, nstates)
-        rollout_batch_actions = torch.zeros(rollout_batch_sz)
-        rollout_batch_rewards = torch.zeros(rollout_batch_sz)
-        rollout_batch_next_states = torch.zeros(rollout_batch_sz, nstates)
-        rollout_batch_done = torch.zeros(rollout_batch_sz)
+        if verbose and step % 500 == 0:
+            print(f"Step {step}/{nsteps}")
+            
+        rollout_batch_states = torch.zeros(rollout_batch_sz, nstates, device=device)
+        rollout_batch_actions = torch.zeros(rollout_batch_sz, device=device)
+        rollout_batch_rewards = torch.zeros(rollout_batch_sz, device=device)
+        rollout_batch_next_states = torch.zeros(rollout_batch_sz, nstates, device=device)
+        rollout_batch_done = torch.zeros(rollout_batch_sz, device=device)
         
         ttl = 0 # ttl is total experiences (summed over all rollouts in this step)
                     # so far in this step
         for _ in range(rollout_batch_sz): # number of rollouts per step 
             done = False
             state, _ = env.reset()
-            state = torch.tensor(state)
+            state = torch.tensor(state, device=device)
             
             i = 0 
             while i < max_rollout_len and not done and ttl < rollout_batch_sz: # one rollout
                 # removed noise since now stochastic policy 
-                next_action, log_p, mean, log_std  = policy_net.sample(state.to(device)).cpu() 
+                with torch.no_grad():
+                    next_action, _, _, _ = policy_net.sample(state)
+                    next_action = next_action.cpu().item()
                 
-                next_state, r, terminated, truncated, _ = env.step([next_action] if isinstance(next_action, float) else next_action)
+                next_state, r, terminated, truncated, _ = env.step([next_action])
                 done = terminated or truncated
-                next_state = torch.tensor(next_state)
+                next_state = torch.tensor(next_state, device=device)
 
                 rollout_batch_states[ttl].copy_(state)
                 rollout_batch_actions[ttl] = next_action
@@ -281,23 +306,32 @@ def train(
                 rollout_batch_next_states[ttl].copy_(next_state)
                 rollout_batch_done[ttl] = done
                 
-                state = next_state if not done else torch.tensor(env.reset()[0])
+                state = next_state if not done else torch.tensor(env.reset()[0], device=device)
                 i += 1
                 ttl += 1
                 
                 if done:
                     ep_len_moving_avg = 0.9 * ep_len_moving_avg + 0.1 * i
+                    if verbose and step % 500 == 0:
+                        print(f"Episode finished after {i} steps, moving avg: {ep_len_moving_avg:.2f}")
                     i = 0
         
-        # push all newly collected experiences into our buffer
-        buffer.push((rollout_batch_states, rollout_batch_actions, rollout_batch_rewards, 
-                rollout_batch_next_states, rollout_batch_done))
 
+        buffer.push((
+            rollout_batch_states.cpu(),
+            rollout_batch_actions.cpu(),
+            rollout_batch_rewards.cpu(),
+            rollout_batch_next_states.cpu(),
+            rollout_batch_done.cpu()
+        ))
+
+        if verbose and step % 500 == 0:
+            print(f"Collected {ttl} experiences, buffer size: {buffer.size}")
 
         for i in range(num_updates_per_step): 
             batch = buffer.get_batch(train_batch_sz)
 
-            states, actions, critic_targets = get_critic_targets(batch, q_net1, q_net2, policy_net_target, q_net_target1, q_net_target2, alpha=alpha)
+            states, actions, critic_targets = get_critic_targets(batch, policy_net_target, q_net_target1, q_net_target2, alpha=alpha, gamma=0.995, device=device)
             qpred1 = q_net1(states, actions)
             qpred2 = q_net2(states, actions)
             
@@ -308,24 +342,27 @@ def train(
             critic_loss.backward()
             torch.nn.utils.clip_grad_norm_(q_net1.parameters(), max_norm=1.0)
             torch.nn.utils.clip_grad_norm_(q_net2.parameters(), max_norm=1.0)
-            opt_critic.step()
+            opt_critic1.step()
+            opt_critic2.step()
 
-            actor_loss = actor_loss_fn(batch, q_net1, q_net2, policy_net)
+            actor_loss = actor_loss_fn(batch, q_net1, q_net2, policy_net, alpha=alpha, device=device)
             actor_loss.backward()
             torch.nn.utils.clip_grad_norm_(policy_net.parameters(), max_norm=1.0)
             opt_actor.step()
             
             opt_actor.zero_grad()
-            opt_critic.zero_grad() 
+            opt_critic1.zero_grad() 
+            opt_critic2.zero_grad() 
+
+            if verbose and step % 500 == 0 and i % 500 == 0:
+                print(f"Update {i+1}/{num_updates_per_step}: Critic Loss {critic_loss.item():.6f}, Actor Loss {actor_loss.item():.6f}")
 
 
-        # Run evaluation every 100 nsteps
         if step % 500 == 0:
-            avg_reward = eval_policy(policy_net)
+            avg_reward = eval_policy(policy_net, device=device)
             if verbose:
-                print(f'[{step}/{nsteps}]: Critic Loss {critic_loss.item()}, Actor Loss {actor_loss.item()},  Avg Reward {avg_reward:.2f}')
+                print(f'[{step}/{nsteps}]: Critic Loss {critic_loss.item():.6f}, Actor Loss {actor_loss.item():.6f}, Avg Reward {avg_reward:.2f}')
 
-        # Soft update of target network parameters, difference from DQN, done every step 
         with torch.no_grad():
             for tp, pp in zip(q_net_target1.parameters(), q_net1.parameters()): 
                 tp.data.copy_(target_ema * tp.data + (1-target_ema) * pp.data)
@@ -339,20 +376,21 @@ def train(
 
 # same structure hypers/args as most files in this project 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Train DDPG on Pendulum')
-    parser.add_argument('--nsteps', type=int, default=10_000, help='Number of training nsteps')
-    parser.add_argument('--buffer-size', type=int, default=100_000, help='Size of replay buffer')
+    parser = argparse.ArgumentParser(description='Train SAC on Pendulum')
+    parser.add_argument('--nsteps', type=int, default=5_000, help='Number of training nsteps')
+    parser.add_argument('--buffer-size', type=int, default=50_000, help='Size of replay buffer')
     parser.add_argument('--actor-lr', type=float, default=1e-4, help='Actor learning rate')
     parser.add_argument('--critic-lr', type=float, default=1e-3, help='Critic learning rate')
-    parser.add_argument('--epsilon-final', type=float, default=0.01, help='Final exploration rate')
     parser.add_argument('--max-rollout-len', type=int, default=200, help='Maximum rollout length')
     parser.add_argument('--updates-per-step', type=int, default=3, help='Number of updates per step')
-    parser.add_argument('--train-batch-size', type=int, default=512, help='Training batch size')
-    parser.add_argument('--rollout-batch-size', type=int, default=64, help='Rollout batch size')
+    parser.add_argument('--train-batch-size', type=int, default=256, help='Training batch size')
+    parser.add_argument('--rollout-batch-size', type=int, default=50, help='Rollout batch size')
     parser.add_argument('--target-ema', type=float, default=0.995, help='Smoothing rate for target reset')
+    parser.add_argument('--alpha', type=float, default=0.2, help='Temperature parameter for entropy')
+    parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--wandb', action='store_true', help='Use wandb logging')
     parser.add_argument('--verbose', action='store_true', help='Print training progress')
-    
     args = parser.parse_args()
     
     train(
@@ -360,7 +398,6 @@ if __name__ == "__main__":
         max_buffer_sz=args.buffer_size,
         actor_lr=args.actor_lr,
         critic_lr=args.critic_lr,
-        epsilon_final=args.epsilon_final,
         max_rollout_len=args.max_rollout_len,
         num_updates_per_step=args.updates_per_step,
         train_batch_sz=args.train_batch_size,
