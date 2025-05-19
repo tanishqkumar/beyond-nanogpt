@@ -2,9 +2,9 @@
 (https://arxiv.org/pdf/1801.01290) Soft Actor-Critic: Off-Policy 
                     Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor
 
-DDPG -> SAC: 
-    - Adding noise at rollouts is crude, want "learned diversity" 
-        -> use entropy term in loss and stochastic policy (diff from DDPG)
+Changes to go from DDPG -> SAC: 
+    - Adding noise at rollouts is crude, we want some more structured "learned diversity" 
+        -> Fix: use entropy term in loss and stochastic policy (diff from DDPG)
         Motivation: SAC actually redefines its notion of value. Rather than Q(s,a) being the 
         action-value of (s,a), we now hypothesize that being in a state where pi(_|s) has high entropy is 
         to some extent *inherently valuable* because it increases future exploration. This means 
@@ -21,8 +21,12 @@ DDPG -> SAC:
             this problem and introduces the notion of using two Q-networks and using the min of the two Q-values. 
             SAC simply ports this double DQN innovation into continuous world (DDPG). 
 
-
-TODO 
+BTW, it's easy to forget for more involved actor-critic method like DDPG/SAC, but remember all these 
+methods only use the actor (policy) at inference-time. The critic (value nets) -- no matter how fancy their training -- 
+are just tools to reduce variance in gradient updates for the actor. We don't use the trained Q-networks at inference time 
+(contrast this with DQN, where obviously the policy we use is entirely determined by the learned Q-network). Hence, 
+DDPG/SAC are squarely "actor-critic" rather than Q-learning methods, even though there is learning of Q functions involved. 
+    It's important to typecheck these things in one's head!
 '''
 
 import gym 
