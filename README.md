@@ -102,7 +102,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
       - [x] DQN `train_dqn.py`
       - [x] REINFORCE `train_reinforce.py`
       - [x] PPO `train_ppo.py`
-   - Actor-Critic and Distributed Variants `rl/actor-critic`
+   - Actor-Critic and Key Variants `rl/actor-critic`
       - [x] Advantage Actor-Critic (A2C) `train_a2c.py`
       - [x] Asynchronous Advantage Actor-Critic (A3C) `train_a3c.py` 
       - [x] IMPALA (distributed RL) `train_impala.py` 
