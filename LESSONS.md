@@ -13,7 +13,7 @@ are relatively painful (both to write code for and performance-wise), because GP
 overhead that share memory doesn't. Instead, use queues to pass around indices or slots sparingly, that tell functions where in shared 
 memory to read/write. 
 - Avoid repeated `torch.tensor(x)` calls; instead, preallocate tensors and index into them when possible.
-- Fast implementations minimize loops by leveraging torch native functions that are highly optimized (e.g., cumsum, bmm). For instance, expressing convolutions as `F.unfold + bmm` rather than looping over kernel windows. Often you can get a 10x performance gain by just stepping back and asking which vanilla python functions 
+- Fast implementations minimize loops by leveraging torch native functions that are highly optimized (e.g., `cumsum`, `bmm`). For instance, expressing convolutions as `F.unfold + bmm` rather than looping over kernel windows. Often you can get a 10x performance gain by just stepping back and asking which vanilla python functions 
 in the code can be rewritten as native torch functions. 
 - Many operations can be expressed differently for efficiency - convolution operations are particularly flexible. Operations that might seem to require loops can often be implemented as clever convolutions with specific matrices. With practice, recognizing when to express linear operations as convolutions becomes intuitive.
 - Sometimes code provides more clarity than mathematical notation. For example, the reparameterization trick (which looks complex mathematically) is simply `z * sqrt(std) + mean` where we differentiate through mean/std parameters ("differentiating through sampling").
