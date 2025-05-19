@@ -1,0 +1,14 @@
+# Lessons from the Trenches 
+
+- The objective function is paramount - work in generative modeling makes this especially clear.
+- Inter-CPU communications are simplified due to shared memory architecture.
+- Avoid repeated `torch.tensor(x)` calls; instead, preallocate tensors and index into them when possible.
+- Fast implementations minimize loops by leveraging torch native functions that are highly optimized (e.g., cumsum, bmm). For instance, expressing convolutions as `F.unfold + bmm` rather than looping over kernel windows.
+- Many operations can be expressed differently for efficiency - convolution operations are particularly flexible. Operations that might seem to require loops can often be implemented as clever convolutions with specific matrices. With practice, recognizing when to express linear operations as convolutions becomes intuitive.
+
+- Sometimes code provides more clarity than mathematical notation. For example, the reparameterization trick (which looks complex mathematically) is simply `z * sqrt(std) + mean` where we differentiate through mean/std parameters ("differentiating through sampling").
+- Broadcasting is critically important - for example, using arrays of different dimensions to extract indices like `[b, s, t] -> [b, s]` for label extraction.
+- Most neural architectures are inherently difficult to train. Small details like normalization techniques (LayerNorm, BatchNorm, GroupNorm) and residual connections aren't mere implementation details but breakthrough concepts that made previously untrainable models viable. Before 2012, the scientific consensus held that learning complex nonlinear functions was fundamentally untenable due to instability and training difficulties - it turned out these challenges were engineering problems with solutions, not fundamental limitations.
+- Modern deep learning involves more mathematical sophistication than is apparent from studying LLMs alone. Reading RL papers reveals discussions about loss landscape geometry, Hessians, and information theory (proper scoring functions, natural policy gradients) - this mathematical foundation is essential, not merely academic.
+- Generative models particularly highlight this mathematical depth. When developing methods to learn high-dimensional distributions, concepts like metrics in distributional space and optimal transport become unavoidable. Understanding the forward/backward processes of diffusion models and probability flow ODEs is crucial for research in this area (even if you can implement working models without this depth).
+- This mathematical sophistication makes me grateful for my strong undergraduate training in math and statistics. In comparison, LLMs are conceptually simpler - training a transformer on next-token prediction, with everything else (activation functions, multi-token prediction, etc.) being algorithmic refinements without the same level of deep or subtle mathematical concepts.
