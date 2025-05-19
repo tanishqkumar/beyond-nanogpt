@@ -109,8 +109,9 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
       - [x] Deep Deterministic Policy Gradient (DDPG) `train_ddpg.py` 
       - [x] Soft Actor-Critic (SAC) `train_sac.py` 
    - Model-based RL 
+      - [ ] Model Predictive Control (MPC)
+      - [ ] Expert Iteration 
       - [ ] Probabilistic Ensembles with Trajectory Sampling (PETS)
-      - [ ] Dreamer
    - [ ] Neural Chess Engine (self-play, MCTS)
 - LLMs
    - [ ] RLHF a base model with UltraFeedback 
