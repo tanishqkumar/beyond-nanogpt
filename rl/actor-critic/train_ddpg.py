@@ -22,6 +22,21 @@ Changes DQN -> DDPG:
             In DDPG you explicitly split "actor" (μ) and "critic" (Q), and maintain two targets 
             (μ', Q') which are EMA copies of their online counterparts.
             EMA replaces the "copy-every-N steps" trick.
+
+
+Output looks something like below with default hypers (scroll right for numbers)! 
+    You can see reward increasing steadily over time (getting less negative), which means it's working!
+            
+  5%|█████████▌                                                                                                                                                                                       | 496/10000 [00:11<03:42, 42.79it/s][500/10000]: Critic Loss 0.1101377010345459, Actor Loss 20.757001876831055, Noise Std 0.0955, Avg Reward -1484.45
+ 10%|███████████████████▏                                                                                                                                                                             | 996/10000 [00:23<03:31, 42.55it/s][1000/10000]: Critic Loss 0.07868068665266037, Actor Loss 35.48066329956055, Noise Std 0.0910, Avg Reward -1431.16
+ 15%|████████████████████████████▋                                                                                                                                                                   | 1496/10000 [00:35<03:19, 42.63it/s][1500/10000]: Critic Loss 0.09234171360731125, Actor Loss 49.64954376220703, Noise Std 0.0865, Avg Reward -1076.92
+ 20%|██████████████████████████████████████▎                                                                                                                                                         | 1996/10000 [00:47<03:08, 42.49it/s][2000/10000]: Critic Loss 0.185881108045578, Actor Loss 55.5531005859375, Noise Std 0.0820, Avg Reward -1127.65
+ 25%|███████████████████████████████████████████████▉                                                                                                                                                | 2496/10000 [00:59<02:56, 42.46it/s][2500/10000]: Critic Loss 0.6029446125030518, Actor Loss 56.4275016784668, Noise Std 0.0775, Avg Reward -742.59
+ 30%|█████████████████████████████████████████████████████████▌                                                                                                                                      | 2996/10000 [01:11<02:44, 42.64it/s][3000/10000]: Critic Loss 1.1585023403167725, Actor Loss 63.518165588378906, Noise Std 0.0730, Avg Reward -1509.08
+ 35%|███████████████████████████████████████████████████████████████████                                                                                                                             | 3496/10000 [01:23<02:32, 42.66it/s][3500/10000]: Critic Loss 1.5256766080856323, Actor Loss 68.82205200195312, Noise Std 0.0685, Avg Reward -190.22
+ 40%|████████████████████████████████████████████████████████████████████████████▋                                                                                                                   | 3996/10000 [01:35<02:20, 42.63it/s][4000/10000]: Critic Loss 2.092850685119629, Actor Loss 68.82980346679688, Noise Std 0.0640, Avg Reward -193.57
+ 45%|██████████████████████████████████████████████████████████████████████████████████████▎                                                                                                         
+ 48%|███████████████████████████████████████████████████████████████████████████████████████████▊                       
 '''
 
 import gym 
