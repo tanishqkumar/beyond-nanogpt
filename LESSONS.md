@@ -41,12 +41,10 @@ keeps the pole up longer).
   - Another instance where loss increase can actually be fine is in implementations with multiple networks interacting to learn. GANs are the simplest example, where learning in one network 
 can make it harder for the other network to decrease loss, but DDPG in RL is another example, where the Q-network (critic) and policy (actor) are learning 
 in parallel and both appear in each loss function. 
-- Exploration in RL is fundamentally different across algorithms: epsilon-greedy (DQN) gradually reducing randomness, additive noise at inference-time (DDPG), 
-and entropy-based exploration (policy gradient methods) all have different characteristics and failure modes. One vague research direction I think is interesting in the future is "structured exploration" -- adding noise as a way to incentivize exploration in RL systems is fine, but when outlier humans explore they explore some orthogonal -- but structured -- space rather than just a noised version 
+- Exploration in RL is fundamentally different across algorithms: epsilon-greedy (DQN) gradually reducing randomness, additive noise at inference-time (DDPG), and entropy-based exploration (policy gradient methods) all have different characteristics and failure modes. 
+  - One research direction I think is interesting in the future is "structured exploration" -- adding noise as a way to incentivize exploration in RL systems is fine, but when outlier humans explore they explore some orthogonal -- but structured -- space rather than just a noised version 
 of their usual space. 
 - The difference between on-policy and off-policy algorithms is fundamental to RL. Using off-policy data effectively is a major research question in pure RL
 in a way that is surprising to LLM folks like myself, because in LLM land off-policy training (next token prediction-based pretraining) *just works!* The issues 
 of distribution mismatch between inference/pretraining time are kind of non-issues in practice if you instruction-tune the base model at the end. 
-But, as we move into training for more long-horizon (agentic) LLM tasks, this distinction is important for LLM folks to understand. I bet you 
-techniques like IMPALA (except between GPUs instead of between GPU/CPU) where you have one sub-cluster for rollouts and another for grad updates with 
-broadcasting and some sort of importance adjustment are being used in production in frontier labs!
+- But, as we move into training for more long-horizon (agentic) LLM tasks, this distinction is important for LLM folks to understand. I bet you techniques like IMPALA (except between GPUs instead of between GPU/CPU) where you have one sub-cluster for rollouts and another for grad updates with broadcasting and some sort of importance adjustment are being used in production in frontier labs!
