@@ -32,6 +32,6 @@ and perform some computation.
       `.jsonl` files, then feeding the outputs to a GPU to do forward/backward on (pretraining itself). The goal is for the workers to keep the GPU 
       fed, ie. fully utilized, throughout. 
     - This also appears in distributed RL! In `train_impala.py`, IMPALA is an algorithm that uses CPU workers (producers) to do rollouts (small batch, 
-      forward only) and store the rollouts $\{(s_t, a_t, r_t, d_t)_t\}_{t=0}^T$ in a global central buffer (shared memory) where then a single GPU worker 
+      forward only) and store the rollouts $\{(s_t, a_t, r_t, d_t)\}_{t=0}^T$ in a global central buffer (shared memory) where then a single GPU worker 
       (consumer) learns based on those rollouts (ie. high-batch, forward + backward, hence the need for a GPU for the large matmuls). 
     - In other words, writing a SOTA distributed RL algorithm was easy once I had written an optimized dataloader -- two seemingly unrelated concepts!
