@@ -1,7 +1,7 @@
 # Lessons from the Trenches 
 
 **I've written over ten thousand lines of pytorch by hand for this repo**, 
-often relying on nothing more than `nn.Linear` to implement things from latent diffusion transformers to multi-latent attention and deep RL techniques like PPO and SAC. As someone who startedwith an LLM-only background and some theoretical training, **here are some of the things I've learned, or wish I knew before I started.** 
+often relying on nothing more than `nn.Linear` to implement things from diffusion transformers to multi-latent attention and deep RL techniques like PPO and SAC. As someone who started with an LLM-only background in deep learning, and some theoretical training, **here are some of the things I've learned, or wish I knew before I started.** 
 
 - The objective function is paramount. People often focus on the architecture, algorithmic 
 innovations, even the data, but really most seminal papers in deep learning are just new objectives to train on that make neural models particularly 
