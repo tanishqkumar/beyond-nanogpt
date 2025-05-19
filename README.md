@@ -67,6 +67,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 ### Architectures
 - [x] Vanilla causal Transformer for language modeling (starting point) `language-models/train_naive.py`
 - [x] Vision Transformer (ViT) `architectures/train_vit.py`
+- [ ] Shifted Windows Transformer (SWin) `architectures/train_vit.py`
 - [x] Diffusion Transformer (DiT) `architectures/train_dit.py`
 - [x] Recurrent Neural Network (RNN) `architectures/train_rnn.py` 
 - [x] Residual Networks (ResNet) `architectures/train_resnet.py`
@@ -106,8 +107,8 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
       - [ ] Deep Deterministic Policy Gradient (DDPG)
       - [ ] Soft Actor-Critic (SAC)
    - Model-based RL 
-      - [ ] PETS 
-      - [ ] MBPO 
+      - [ ] Probabilistic Ensembles with Trajectory Sampling (PETS)
+      - [ ] Dreamer
    - [ ] Neural Chess Engine (self-play, MCTS)
 - LLMs
    - [ ] RLHF a base model with UltraFeedback 
@@ -118,9 +119,11 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 ### Generative Models
 
 - [x] Image generation with a GAN `generative-models/train_gan.py`
+- [ ] Pix2Pix (Conditional GANs)
 - [x] Image generation with a VAE `generative-models/train_vae.py`
    - [x] Train an autoencoder for reconstruction `generative-models/train_autoencoder.py` 
 - [x] Image generation with a denoising diffusion U-Net (DDPM) `generative-models/train_ddpm.py` 
+- [ ] Latent Diffusion 
 - [x] Classifier-based diffusion guidance `generative-models/ddpm_classifier_guidance.py`
    - [x] Classifier-free diffusion guidance `generative-models/ddpm_classifier_free_guidance.py`
 - [x] Flow matching `generative-models/train_flow_matching.py`
