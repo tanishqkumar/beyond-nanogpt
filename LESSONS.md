@@ -30,8 +30,23 @@ where a bunch of "producer" processes construct objects, put them into a shared 
 and perform some computation. 
     - This appears in `dataloaders` in the form of many CPU workers doing pre-processing (tokenization, sequence packing, adding BOS/EOS) to raw 
       `.jsonl` files, then feeding the outputs to a GPU to do forward/backward on (pretraining itself). The goal is for the workers to keep the GPU 
-      fed, ie. fully utilized, throughout. 
+      fed, i.e., fully utilized, throughout. 
     - This also appears in distributed RL! In `train_impala.py`, IMPALA is an algorithm that uses CPU workers (producers) to do rollouts (small batch, 
       forward only) and store the rollouts $\{(s_t, a_t, r_t, d_t)\}_{t=0}^T$ in a global central buffer (shared memory) where then a single GPU worker 
-      (consumer) learns based on those rollouts (ie. high-batch, forward + backward, hence the need for a GPU for the large matmuls). 
+      (consumer) learns based on those rollouts (i.e., high-batch, forward + backward, hence the need for a GPU for the large matmuls). 
     - In other words, writing a SOTA distributed RL algorithm was easy once I had written an optimized dataloader -- two seemingly unrelated concepts!
+- Loss doesn't always have to go down! In some RL settings, loss can increase with reward (which ultimately is what we care about). 
+When reward increases as policy improves, the loss can counter-intuitively increase too as average episode length grows (since your policy, e.g., in cartpole, 
+keeps the pole up longer). 
+  - Another instance where loss increase can actually be fine is in implementations with multiple networks interacting to learn. GANs are the simplest example, where learning in one network 
+can make it harder for the other network to decrease loss, but DDPG in RL is another example, where the Q-network (critic) and policy (actor) are learning 
+in parallel and both appear in each loss function. 
+- Exploration in RL is fundamentally different across algorithms: epsilon-greedy (DQN) gradually reducing randomness, additive noise at inference-time (DDPG), 
+and entropy-based exploration (policy gradient methods) all have different characteristics and failure modes. One vague research direction I think is interesting in the future is "structured exploration" -- adding noise as a way to incentivize exploration in RL systems is fine, but when outlier humans explore they explore some orthogonal -- but structured -- space rather than just a noised version 
+of their usual space. 
+- The difference between on-policy and off-policy algorithms is fundamental to RL. Using off-policy data effectively is a major research question in pure RL
+in a way that is surprising to LLM folks like myself, because in LLM land off-policy training (next token prediction-based pretraining) *just works!* The issues 
+of distribution mismatch between inference/pretraining time are kind of non-issues in practice if you instruction-tune the base model at the end. 
+But, as we move into training for more long-horizon (agentic) LLM tasks, this distinction is important for LLM folks to understand. I bet you 
+techniques like IMPALA (except between GPUs instead of between GPU/CPU) where you have one sub-cluster for rollouts and another for grad updates with 
+broadcasting and some sort of importance adjustment are being used in production in frontier labs!
