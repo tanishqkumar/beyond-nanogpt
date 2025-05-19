@@ -123,6 +123,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [ ] Pix2Pix (Conditional GANs)
 - [x] Image generation with a VAE `generative-models/train_vae.py`
    - [x] Train an autoencoder for reconstruction `generative-models/train_autoencoder.py` 
+- [ ] Neural Radiance Fields (NeRF)
 - [x] Image generation with a denoising diffusion U-Net (DDPM) `generative-models/train_ddpm.py` 
 - [ ] Latent Diffusion 
 - [x] Classifier-based diffusion guidance `generative-models/ddpm_classifier_guidance.py`
