@@ -38,14 +38,17 @@ env = gym.make('Pendulum-v1', render_mode=None)
 
 # 3 states -> action is a scalar we'll sample from since DDPG requires continuous action space 
 class PolicyNet(nn.Module): 
-    def __init__(self, nstates=3, action_dim=1, hidden_dim=128, act=nn.GELU()): 
+    def __init__(self, nstates=3, action_dim=1, hidden_dim=128, act=nn.GELU(), a_lower=-2.0, a_upper=2.0): 
         super().__init__()
         self.w1 = nn.Linear(nstates, hidden_dim) # torch.cat([s, a]) --> values 
         self.w2 = nn.Linear(hidden_dim, action_dim) # one action, a scalar output on pendulum in [-2., 2.]
         self.act = act  
+        self.a_lower = a_lower 
+        self.a_upper = a_upper 
 
     def forward(self, x): # x is [nstates], want [nactions] as logits
-        return self.w2(self.act(self.w1(x))) 
+        out = self.w2(self.act(self.w1(x))).squeeze(-1)
+        return torch.clamp(out, self.a_lower, self.a_upper) # [b] outputs 
 
 class QNet(nn.Module): 
     def __init__(self, nstates=3, action_dim=1, hidden_dim=128, act=nn.GELU()): 
@@ -54,8 +57,11 @@ class QNet(nn.Module):
         self.w2 = nn.Linear(hidden_dim, 1) # 
         self.act = act 
 
-    def forward(self, x): # [nstates + action_dim]
-        return self.w2(self.act(self.w1(x))) 
+    def forward(self, states, actions): # [nstates + action_dim]
+        if actions.dim() == 1:
+            actions = actions.unsqueeze(-1)  # Add dimension to match expected shape
+        x = torch.cat([states, actions], dim=-1) 
+        return self.w2(self.act(self.w1(x))).squeeze(-1)
 
 
 class ReplayBuffer: 
@@ -105,33 +111,29 @@ class ReplayBuffer:
 # Bellman MSE to learn the right Q-value function using q_net
     # policy_net, the actor, gets its grads in a separate loss fn doing 
     # gradient ascent on E[Q(s, policy(s))] since it's deterministic 
-def critic_loss_fn(sartd, policy_net, q_net, policy_net_target, q_net_target, gamma=0.9): 
+def critic_loss_fn(sartd, q_net, policy_net_target, q_net_target, gamma=0.9): 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     states, actions, rewards, next_states, dones = sartd # unpack 
     
     # move to device only for forward pass
-    states = states.to(device)
+    states = states.to(device) # [batch, nstates]
     next_states = next_states.to(device)
     actions = actions.to(device) # [batch]
     rewards = rewards.to(device)
     dones = dones.to(device)
     
-    logits = policy_net(states)
-    # logits is [b, nactions], want pred_qvals to be [b] 
-    
     # this is critic, ie. QNet, loss, actor (policy_net) trained separately
+        # and _target nets are EMA shadows, so not trained at all 
     with torch.no_grad(): 
-        mu = policy_net_target(next_states) # [b, nactions]
+        mu = policy_net_target(next_states) # [b] actions
+        qtargets = q_net_target(next_states, mu) # 
 
     # a key change from DQN: approx torch.max(next_values) with our new DPG network (targets)
         # which we train with gradient ascent 
-    targets = rewards + gamma * (1 - dones) * q_net_target(mu)
-
-    # TODO: fix to account for scalar actions, define target nets and ema in main loop 
-    batch_idx  = torch.arange(actions.shape[0], device=actions.device)
-    pred_qvals = logits[batch_idx, actions.long()]   # shape (batch,)
+    targets = rewards + gamma * (1 - dones) * qtargets 
     
-    return ((pred_qvals - targets)**2).mean()
+    # empirical bellman mse optimized, just as in DQN, but using our policy mu to approx max_a Q(s, a)
+    return ((q_net(states, actions) - targets)**2).mean()
 
 # gradient descent on -Q(s, policy(s)).mean()
 def actor_loss_fn(sartd, q_net, policy_net): 
@@ -144,12 +146,15 @@ def actor_loss_fn(sartd, q_net, policy_net):
     actions = actions.to(device) # [batch]
     rewards = rewards.to(device)
     dones = dones.to(device)
+    
+    # Don't use no_grad here - we need gradients for the policy network
+    mu = policy_net(states)
 
-    return -q_net(next_states).mean() # [b, nstates] -> [b, 1]
-
+    # Pass mu (actions from policy) to q_net to evaluate policy
+    return -q_net(states, mu).mean() # [b] -> scalar
 
 def train(
-    epochs=1000,
+    epochs=1_000,
     max_buffer_sz=10_000,
     lr=0.001,
     epsilon_final=0.01,
@@ -165,13 +170,9 @@ def train(
 ):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
     policy_net = PolicyNet().to(device)
     q_net = QNet().to(device)
-    
-    # moving average copies for use in policy loss computation for training stability
-    policy_net_target = PolicyNet().to(device)
-    q_net_target = QNet().to(device)
-
     buffer = ReplayBuffer(max_buffer_sz)
  
     opt_critic = torch.optim.Adam(q_net.parameters(), lr=lr)
@@ -179,9 +180,18 @@ def train(
     opt_actor = torch.optim.Adam(policy_net.parameters(), lr=lr)
     opt_actor.zero_grad()
 
+    # moving average copies for use in policy loss computation for training stability   
+        # no need for opts for these since they are just EMA shadows of the policy_net and q_net above 
+    policy_net_target = PolicyNet().to(device)
+    q_net_target = QNet().to(device)
+    
+    # Initialize target networks with the same weights as the online networks
+    policy_net_target.load_state_dict(policy_net.state_dict())
+    q_net_target.load_state_dict(q_net.state_dict())
+
     epsilon = 1.0  
     epsilon_decay = (1.0 - epsilon_final) / (epochs * 0.8)  # we decay so we explore more at beginning and less at end
-    nstates = 3  # pendulum has 3 states 
+    nstates = 3  # pendulum has 3 states and one (scalar) action 
 
     ep_len_moving_avg = 0 
     for step in tqdm(range(epochs), disable=not verbose): 
@@ -200,7 +210,7 @@ def train(
             
             i = 0 
             while i < max_rollout_len and not done and ttl < rollout_batch_sz: # one rollout
-                next_action = policy_net(state.to(device)) 
+                next_action = policy_net(state.to(device)).cpu() 
                 
                 if torch.rand(1).item() > epsilon: 
                     # add noise as in paper to help exploration since now policy is deterministic 
@@ -210,9 +220,9 @@ def train(
                     next_action = torch.clamp(next_action, a_lower, a_upper).item() 
 
                 else: 
-                    next_action = env.action_space.sample()
+                    next_action = torch.FloatTensor([torch.rand(1).item() * 4 - a_lower]).item()  # Random action in range [-2, 2]
                 
-                next_state, r, terminated, truncated, _ = env.step(next_action)
+                next_state, r, terminated, truncated, _ = env.step([next_action] if isinstance(next_action, float) else next_action)
                 done = terminated or truncated
                 next_state = torch.tensor(next_state)
 
@@ -238,20 +248,26 @@ def train(
         for i in range(num_updates_per_step): 
             batch = buffer.get_batch(train_batch_sz)
 
-            critic_loss = critic_loss_fn(batch, policy_net, q_net)
+            critic_loss = critic_loss_fn(batch, q_net, policy_net_target, q_net_target)
             critic_loss.backward()
             opt_critic.step()
-            opt_critic.zero_grad()
 
-            actor_loss = actor_loss_fn(batch, policy_net, q_net)
+            actor_loss = actor_loss_fn(batch, q_net, policy_net)
             actor_loss.backward()
             opt_actor.step()
+            
             opt_actor.zero_grad()
+            opt_critic.zero_grad() 
+            # subtle: it's important opt_critic is zero_grad here and not before actor bwd
+                # because critic is used on actor fwd -E[critic(s,actor(s))] and so is given .grad
+                # in opt_actor.bwd() even if those grads aren't applied, so we need to clear those 
+
 
         epsilon = max(epsilon_final, epsilon - epsilon_decay)
 
         if verbose and step % 100 == 0: 
-            # Reward = (moving avg episode len) because we want to keep the pole upright for as long as possible!
+            # Reward = negative of the moving avg episode len because in Pendulum-v1, 
+            # rewards are negative and closer to 0 is better (penalizes distance from upright position)
             print(f'[{step}/{epochs}]: Critic Loss {critic_loss.item()}, Actor Loss {actor_loss.item()}, Reward: {round(ep_len_moving_avg, 3)}')
 
         # Soft update of target network parameters, difference from DQN, done every step 
@@ -259,7 +275,7 @@ def train(
             for tp, pp in zip(q_net_target.parameters(), q_net.parameters()): 
                 tp.data.copy_(target_ema * tp.data + (1-target_ema) * pp.data)
 
-            for tp, pp in zip(policy_net_target.parameters(), policy_net_target.parameters()): 
+            for tp, pp in zip(policy_net_target.parameters(), policy_net.parameters()): 
                 tp.data.copy_(target_ema * tp.data + (1-target_ema) * pp.data)
 
 
