@@ -1,11 +1,12 @@
 '''
 (https://arxiv.org/pdf/1611.07004) Image-to-Image Translation with Conditional Adversarial Nets 
 
-This is an important variation of a GAN. It is a conditional GAN that takes pixels to pixels under some 
+This is an important variation of a GAN. We start with the GAN code from train_gan.py and make the changes given below. 
+Pix2Pix is a *conditional* GAN that takes pixels to pixels under some 
 mapping, like "make this sketch photorealistic" or "fill in the colors." Besides using a conditional GAN, 
-it includes a modified loss function with an L1 penalty. 
+it includes a modified loss function with an L1 penalty for the generator. 
 
-Differences of Pix2Pix from vanilla GAN. 
+Conceretely, the differences of Pix2Pix from vanilla GAN are:  
     - One data point is now [in_img, out_img], eg. pencil sketch and photorealistic counterpart 
     - Both gen/discriminator take in in_img as conditioning information 
     - Noise z is usually dropped in fwd of generator 
@@ -95,43 +96,88 @@ class FacadesDataset(Dataset):
 
 ## end image preprocessing infra ##
 
-# TODO: change archs to (unet, patchgan) once it's working with MLPs
+# UNet 
 class Generator(nn.Module): 
-    def __init__(self, in_ch=3, in_h=256, in_w=256, out_ch=3, out_h=256, out_w=256, mult=2, nlayers=1, act=nn.GELU()):
+    def __init__(self, nblocks=4, in_ch=3, base_ch=32): 
         super().__init__()
-        self.out_ch = out_ch 
-        self.out_h = out_h
-        self.out_w = out_w
-        self.in_ch = in_ch
-        self.in_h = in_h
-        self.in_w = in_w
-        self.mult = mult 
-        self.in_dim = in_ch * in_h * in_w
-        hidden_dim = self.in_dim * mult
-        layers = []
+        self.nblocks = nblocks 
+        self.in_ch = in_ch 
+        self.base_ch = base_ch
 
-        layers.append(nn.Linear(self.in_dim, hidden_dim))
-        layers.append(nn.BatchNorm1d(hidden_dim))
-        layers.append(act)
+        self.first = nn.Conv2d(in_ch, base_ch, kernel_size=4, stride=2, padding=1, bias=False)
 
-        for _ in range(nlayers - 1):
-            layers.append(nn.Linear(hidden_dim, hidden_dim))
-            layers.append(nn.BatchNorm1d(hidden_dim))
-            layers.append(act)
-        # final layer to produce output image pixels
-        layers.append(nn.Linear(hidden_dim, out_ch * out_h * out_w))
-        self.net = nn.Sequential(*layers)
-
-    def forward(self, x):  # [b, ch, h, w] -> ... -> [b, ch, h, w]
-        # if x has > 2 dims, reshape to [b, -1]
-        if len(x.shape) > 2:
-            x = x.reshape(x.shape[0], -1) # [b, ch * h * w]
+        self.down_blocks = nn.ModuleList()
         
-        out = self.net(x)
-        out = out.reshape(x.shape[0], self.out_ch, self.out_h, self.out_w)
-        return out.tanh()  # tanh squashes into [-1, 1] like mnist 
+        ch = base_ch 
+        for _ in range(nblocks): 
+            down_block = self.get_down_block(ch, ch * 2)
+            self.down_blocks.append(down_block)
+            ch *= 2
 
+        self.bottleneck = self.get_middle_block(base_ch * (2 ** nblocks))
 
+        self.up_blocks = nn.ModuleList()
+        
+        ch = base_ch * (2 ** nblocks)
+        for i in range(nblocks): 
+            # For skip connections, input channels are doubled
+            up_block = self.get_up_block(ch * 2, ch//2)
+            self.up_blocks.append(up_block)
+            ch //= 2
+
+        self.last = nn.Sequential(
+            nn.ConvTranspose2d(ch * 2, in_ch, kernel_size=4, padding=1, stride=2, bias=False),
+            nn.Tanh(), # put in [-1, 1] as we want
+        )
+
+    def get_down_block(self, in_ch, out_ch): # returns a nn.Sequential
+        return nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, kernel_size=4, stride=2, padding=1, bias=False), 
+            nn.LeakyReLU(0.2), 
+            nn.InstanceNorm2d(out_ch), 
+        )
+
+    def get_up_block(self, in_ch, out_ch): 
+        return nn.Sequential(
+            nn.ConvTranspose2d(in_ch, out_ch, kernel_size=4, stride=2, padding=1, bias=False), 
+            nn.ReLU(), 
+            nn.InstanceNorm2d(out_ch), 
+        )
+
+    def get_middle_block(self, in_ch): 
+        return nn.Sequential(
+            nn.Conv2d(in_ch, in_ch, kernel_size=3, stride=1, padding=1, bias=False), 
+            nn.LeakyReLU(0.2), 
+            nn.InstanceNorm2d(in_ch), 
+        )
+    
+    def forward(self, x): 
+        # store skips 
+        skips = []
+        
+        h = self.first(x)
+        skips.append(h)
+        
+        # Downsampling path
+        for db in self.down_blocks: 
+            h = db(h)
+            skips.append(h)
+        
+        h = self.bottleneck(h)
+        
+        # upsampling path with skip connections via cat 
+        for ub in self.up_blocks: 
+            skip = skips.pop()
+            h = torch.cat([h, skip], dim=1)
+            h = ub(h)
+        
+        skip = skips.pop()
+        h = torch.cat([h, skip], dim=1)
+        output = self.last(h)
+        return output
+
+# "patchGAN" just means stacking convs so each patch gets its own discriminator. 
+    # we output [b, 1, M, M] scalars then avg to get final verdict on real vs fake
 class Discriminator(nn.Module):  # [out_ch, out_h, out_w] -> 2 logits 
     def __init__(self, out_ch=3, out_h=256, out_w=256, mult=2, nlayers=1, act=nn.GELU()):
         super().__init__()
