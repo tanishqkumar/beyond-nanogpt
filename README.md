@@ -122,7 +122,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 ### Generative Models
 
 - [x] Generative Adversarial Networks (GAN) `generative-models/train_gan.py`
-- [ ] Pix2Pix (Conditional GANs)
+- [x] Pix2Pix (Conditional GANs) `generative-models/train_pix2pix.py` 
 - [x] Variational Autoencoders (VAE) `generative-models/train_vae.py`
    - [x] Train an autoencoder for reconstruction `generative-models/train_autoencoder.py` 
 - [ ] Neural Radiance Fields (NeRF)
