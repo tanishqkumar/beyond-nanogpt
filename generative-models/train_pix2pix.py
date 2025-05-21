@@ -217,22 +217,22 @@ def train(
     verbose=False, sample=False, cripple_factor=4, l1_coeff=0.1
 ):
 
+    # want to init nets, create transforms, make dataloader 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    base_path = './data/facades'
+    os.makedirs(base_path, exist_ok=True)
 
-    os.makedirs("./data/facades", exist_ok=True)
-        
-    if not os.path.exists("./data/facades/base"):
-        if not download_and_extract_facades():
-            print("Failed to set up the dataset. Please check your internet connection or download manually.")
-            return
+    dataset_path = "base_path + '/base'"
+    if not os.path.exists(dataset_path): 
+        if not download_and_extract_facades(): 
+            print(f'Downloading data failed, try again. ')
+            return 
     
     transform = transforms.Compose([
-        transforms.Resize((256, 256)),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),  # normalize to [-1, 1]
+        transforms.Resize((256, 256)), # they should alr be 256, 256
+        transforms.toTensor(), 
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)), # [0, 1] from toTensor -> [-1, 1]
     ])
-    
-    dataset_path = "./data/facades/base"
 
     D = Discriminator(in_ch=in_ch+in_ch, base_ch=int(mult/cripple_factor)).to(device) 
     D_opt = torch.optim.Adam(D.parameters(), lr=lr, betas=(beta1, 0.999))
@@ -306,35 +306,36 @@ def train(
     if verbose:
         print("Training completed!")
 
+    # get 10 train images, fwd and rescale and save 
     if sample: 
         G.eval()
-        # for conditional GAN, we need input images to generate samples
-        sample_batch = next(iter(dataloader))
-        sample_inputs = sample_batch['image'][:10].to(device)  # take first 10 images
-        
-        if verbose:
-            print("Generating sample images...")
-            
+        sample_batch = next(iter(dataset))
+        n_samples = 10 # hardcode for now 
+        sample_inputs = sample_batch['image'][:n_samples].to(device) # ready for fwd 
+        sample_labels = sample_batch['label'][:n_samples].to(device)
+
+        if verbose: 
+            print(f'Sampling now...')
+
         with torch.no_grad(): 
-            generated_minibatch = G(sample_inputs)
-            
-            # create comparison grid: input, generated, ground truth
+            generated_minibatch = G(sample_inputs) 
+
+            # create output grid comparing [in, gen_out, real_out]
             comparison = []
-            for i in range(min(5, len(sample_inputs))):
+            for i in range(min(5, n_samples)): 
                 comparison.extend([
-                    sample_inputs[i],
-                    generated_minibatch[i],
-                    sample_batch['label'][i].to(device)
+                    sample_inputs[i], 
+                    generated_minibatch[i], 
+                    sample_labels[i]
                 ])
 
             # denormalize images from [-1, 1] to [0, 1] for proper visualization
             # images were normalized with transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
             # which scales to [-1, 1], so we need to convert back to [0, 1] for saving
             comparison_tensor = torch.stack(comparison)
-            comparison_tensor = comparison_tensor * 0.5 + 0.5  # denormalize: x * std + mean
-            
+            comparison_tensor = comparison_tensor * 0.5 + 0.5 # back to [0, 1]
             save_image(comparison_tensor, 'pix2pix_results.png', nrow=3)
-            print("Saved comparison images to pix2pix_results.png")
+            if verbose: print(f'Saved image in sampling!')
         
 
 if __name__ == "__main__":
