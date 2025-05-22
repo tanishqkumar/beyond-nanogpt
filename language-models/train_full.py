@@ -6,7 +6,7 @@ from transformers import GPT2TokenizerFast
 import argparse
 import time
 from pathlib import Path
-from dataloader2 import DataLoader # default is fast dataloading
+from dataloader0 import DataLoader # default is slow, single-threaded dataloading
 import os 
 
 
@@ -73,7 +73,7 @@ if __name__ == "__main__":
     data_time = 0
     compute_time = 0
     
-    for step in range(args.steps):
+    for step in tqdm(range(args.steps)):
             
         opt.zero_grad()  
         accumulated_loss = 0
