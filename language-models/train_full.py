@@ -23,15 +23,14 @@ if __name__ == "__main__":
     parser.add_argument('--save', action='store_true', help='Save the model') 
     parser.add_argument('--compile', action='store_true', help='Run compiler to optimize perf') 
     parser.add_argument('--profile', action='store_true', help='Profile data loading and compute time') 
-    parser.add_argument('--slowload', action='store_true', help='Slower data loading') # in case you want to try another dataloader 
+    parser.add_argument('--fastload', action='store_true', help='Faster, multi-threaded data loading') # in case you want to try another dataloader 
     parser.add_argument('--grad_clip', type=float, default=1.0, help='Gradient clipping value') 
     parser.add_argument('--accum', type=int, default=1, help='Gradient accumulation steps') 
     parser.add_argument('--data_path', type=str, default="/n/netscratch/gershman_lab/Lab/tkumar/datasets/dclm/global-shard_01_of_10/newest_data/tinystories.jsonl", help='Dataset path') 
 
     args = parser.parse_args()
-    if args.slowload: 
-        # from dataloader1 import DataLoader # use whichever you want to try as an alternative
-        from dataloader0 import DataLoader 
+    if args.fastload: 
+        from dataloader2 import DataLoader # use whichever you want to try as an alternative
     
     # use a simple off-the-shelf tokenizer, we want to focus on training the arch
     if args.verbose:
@@ -61,7 +60,7 @@ if __name__ == "__main__":
 
     # lets try our custom dataloader
     if args.verbose: print(f'Initializing Custom Dataloader!')
-    if args.slowload: 
+    if args.fastload: 
         dataloader = DataLoader(tokenizer, args.data_path, nworkers=args.nworkers, batch_size=args.batch, seqlen=args.seqlen, verbose=args.verbose)
     else: 
         dataloader = DataLoader(tokenizer, args.data_path, batch_size=args.batch, seqlen=args.seqlen, verbose=args.verbose)
