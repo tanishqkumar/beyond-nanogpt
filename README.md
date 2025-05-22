@@ -108,8 +108,8 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
       - [x] IMPALA (distributed RL) `train_impala.py` 
       - [x] Deep Deterministic Policy Gradient (DDPG) `train_ddpg.py` 
       - [x] Soft Actor-Critic (SAC) `train_sac.py` 
-   - Model-based RL 
-      - [ ] Model Predictive Control (MPC)
+   - Model-based RL  `rl/model-based`
+      - [x] Model Predictive Control (MPC) `train_mpc.py` 
       - [ ] Expert Iteration 
       - [ ] Probabilistic Ensembles with Trajectory Sampling (PETS)
    - [ ] Neural Chess Engine (self-play, MCTS)
