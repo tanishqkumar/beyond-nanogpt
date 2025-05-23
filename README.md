@@ -159,11 +159,12 @@ If this codebase helped you, please share it and give it a star! You can cite th
 in your work as follows. 
 
 ```bibtex
-@misc{beyond-nanogpt,
-  title  = {Beyond-NanoGPT: From LLM Beginner to AI Researcher},
+@misc{kumar2025beyond,
   author = {Tanishq Kumar},
-  year   = {2025},
-  url    = {https://github.com/tanishqkumar/beyond-nanogpt},
+  title = {Beyond-NanoGPT: From LLM Beginner to AI Researcher},
+  year = {2025},
+  howpublished = {\url{https://github.com/tanishqkumar/beyond-nanogpt}},
+  note = {Accessed: 2025-01-XX}
 }
 ```
 
