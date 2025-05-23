@@ -20,12 +20,11 @@ Some key takeaways overall:
             do MCTS in a more serious, scalable way for the neural chess engine in `rl/chess` so it's worth 
             understanding carefully in this "toy" setting. 
 
+Note 1. Expert iteration is TECHNICALLY NOT MODEL-BASED RL BECAUSE WE NEVER LEARN A DYNAMICS
+MODEL f_theta (see train_mpc.py for an example). It's just typically lumped in with model based methods. 
 
-Some useful intuitions I learned about MCTS: 
-    - 
 
-
-Note. Some view modern, LLM-based generative reward models as "distilling inference time compute into the base model" using the 
+Note 2. Some view modern, LLM-based generative reward models as "distilling inference time compute into the base model" using the 
 reward signal, and it's interesting that you can think of this idea as coming from expert iteration, or even before. 
 The entire premise is to do expensive compute to get optimal (s -> a) during training then distill those 
 into a policy (what the paper calls the "apprentice") that is actually what will be used at inference-time. 
