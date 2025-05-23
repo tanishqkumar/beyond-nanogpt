@@ -205,8 +205,6 @@ def rollout(env: gym.Env, max_rollout_depth: int, discount: float, value_net: nn
     return rollout_reward + val_end_state
 
 def expand(node: Node, env: gym.Env, nactions: int, policy_net: nn.Module, rewards: List[float]): 
-    next_a = node.untried_actions.pop(0)
-
     # expand an unexplored action with the highest prior
     next_a = max(
         node.untried_actions, 
@@ -227,30 +225,6 @@ def expand(node: Node, env: gym.Env, nactions: int, policy_net: nn.Module, rewar
     node.children[next_a] = new_child
     
     return new_child, done, rewards 
-
-
-# fast env cloning because not all gym versions support .clone(), this is just infra, not important
-    # you could also just deepcopy() but with envs that would be slow 
-def clone(env: gym.Env) -> gym.Env:
-    new_env = gym.make(env.spec.id)
-    
-    if hasattr(env, 'unwrapped'):
-        unwrapped_env = env.unwrapped
-        new_unwrapped = new_env.unwrapped
-        
-        # Copy all relevant state attributes
-        if hasattr(unwrapped_env, 'state'):
-            new_unwrapped.state = deepcopy(unwrapped_env.state)
-        if hasattr(unwrapped_env, 'lander'):
-            new_unwrapped.lander = deepcopy(unwrapped_env.lander)
-        if hasattr(unwrapped_env, 'world'):
-            new_unwrapped.world = deepcopy(unwrapped_env.world)
-        if hasattr(unwrapped_env, 'game_over'):
-            new_unwrapped.game_over = unwrapped_env.game_over
-        if hasattr(unwrapped_env, 'prev_shaping'):
-            new_unwrapped.prev_shaping = unwrapped_env.prev_shaping
-    
-    return new_env
 
 
 def select_nonterminal(node: Node, env: gym.Env, cpuct: float, tree_max_depth: int, rewards: List[float]): 
@@ -298,7 +272,7 @@ def MCTS(
     )
     
     for _ in range(num_sims): 
-        env_copy = clone(env) # clone this original env so we don't pollute 
+        env_copy = deepcopy(env) # clone this original env so we don't pollute 
         node = root 
         tree_depth = 0 # tree depth is steps during selection, rollut depth during rollout 
         done = False 
