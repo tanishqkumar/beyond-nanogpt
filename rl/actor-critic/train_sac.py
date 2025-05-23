@@ -151,6 +151,13 @@ class ReplayBuffer:
         
         return (states, actions, rewards, next_states, dones)
 
+# TODO: rewrite the equations and these functions from scratch when I wake up 
+    # rewrite two loss fns from scratch and note questions 
+# questions I'm not sure about 
+    # why we use Q rather than V in critic 
+        # to do with us being off policy compared to standard policy grad? 
+        # note that E_{a~pi(_|s)}[Q(s,a)] = V(s), maybe relevant 
+    
 # Bellman MSE to learn the right Q-value function using q_net1
     # policy_net, the actor, gets its grads in a separate loss fn doing 
     # gradient ascent on E[Q(s, policy(s))] since it's deterministic 
@@ -171,12 +178,15 @@ def get_critic_targets(sartd, policy_net_target, q_net_target1, q_net_target2, a
         a, lps, _, _ = policy_net_target.sample(next_states) # [b] actions
         qtargets1 = q_net_target1(next_states, a) 
         qtargets2 = q_net_target2(next_states, a)
+            # remember, we use a not actions here because the offline data (in sartd)
+            # is ONLY used to train critics -- 
+            # also, nothing in this fn is storing grad, the grads will come from 
+            # us later using (states, actions, targets) st we run F.mse_loss(q_net1(states, actions), targets)
+                # where q_net1 (not target) and q_net2 analogously will get grads 
         q_targ = torch.min(qtargets1, qtargets2) - alpha * lps
-
-    
-    targets = rewards + gamma * (1 - dones) * q_targ 
+        targets = rewards + gamma * (1 - dones) * q_targ 
     return states, actions, targets 
-    
+
 
 # gradient descent on -Q(s, policy(s)).mean()
 def actor_loss_fn(sartd, q_net1, q_net2, policy_net, alpha=0.2, device=None): 
@@ -187,12 +197,11 @@ def actor_loss_fn(sartd, q_net1, q_net2, policy_net, alpha=0.2, device=None):
     
     states = states.to(device)
     a, lps, _, _ = policy_net.sample(states)
-    # to clarify: what is the diff bw actions, a, here and in sartd? 
+    # to clarify: one might ask, what is the diff bw actions, a, here and in sartd? 
         # --> a here is on-policy, actions in sartd is from past rollouts 
         # using past rollouts is fine for training the critic (remember, dqn is off-policy)
         # but NOT for the on-policy actor. 
     
-
     # twin critics in SAC 
     mean1 = q_net1(states, a)
     mean2 = q_net2(states, a)
