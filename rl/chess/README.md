@@ -1,4 +1,5 @@
 ## Setup
+
 You'll need to 
 
 `pip install python-chess` 
@@ -7,8 +8,6 @@ in addition to the packages in the main `README.md` since we use that to do
 chess-specific board manipulations/computations, etc.
 
 ## Functionality and Overview
-
-The project architecture is as follows. 
 
 - `model.py` defines the convolutional ResNet that we use as our architecture, with a policy and value head. 
 - `MCTS.py` defines the search logic taking a state and outputting an optimal action. 
