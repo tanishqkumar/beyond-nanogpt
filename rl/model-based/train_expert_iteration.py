@@ -21,7 +21,10 @@ Some key takeaways overall:
             understanding carefully in this "toy" setting. 
 
 Note 1. Expert iteration is TECHNICALLY NOT MODEL-BASED RL BECAUSE WE NEVER LEARN A DYNAMICS
-MODEL f_theta (see train_mpc.py for an example). It's just typically lumped in with model based methods. 
+MODEL f_theta (see train_mpc.py for an example). It's just typically lumped in with model based methods 
+because it involves *planning* (inference-time search with MCTS), a key feature of 
+model-based RL (you learn the model to plan using rollouts). Thus the philosophy of 
+planning moves using search is the same. 
 
 
 Note 2. Some view modern, LLM-based generative reward models as "distilling inference time compute into the base model" using the 
