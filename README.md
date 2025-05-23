@@ -75,7 +75,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] MLP-Mixer `architectures/train_mlp_mixer.py`
 - [x] LSTM `architectures/train_lstm.py` 
 - [x] Mixture-of-Experts (MoE) `architectures/train_moe.py` 
-<!-- - [ ] Mamba  -->
+- [ ] Mamba 
 
 ### Attention Variants
 - [x] Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` 
@@ -95,6 +95,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] KV Caching `language-models/KV_cache.ipynb` 
 - [x] Speculative Decoding `language-models/speculative_decoding.ipynb`
 - [x] RoPE embeddings `language-models/rope.ipynb`
+- [ ] Multi-token Prediction
 
 ### Reinforcement Learning
 - Deep RL
