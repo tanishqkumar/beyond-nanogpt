@@ -7,7 +7,7 @@ You'll need to
 in addition to the packages in the main `README.md` since we use that to do 
 chess-specific board manipulations/computations, etc.
 
-## Functionality and Overview
+## Overview
 
 - `model.py` defines the convolutional ResNet that we use as our architecture, with a policy and value head. 
 - `MCTS.py` defines the search logic taking a state and outputting an optimal action. 
@@ -18,6 +18,6 @@ chess-specific board manipulations/computations, etc.
 - `eval.py` takes in a path for trained weights, outputs Elo by playing many games against a model whose Elo is known.
 - `train.py` is the file to run, outlining the training loop and assimilating all other files.  
 
-## Lessons learned. 
+## Lessons Learned 
 
 TODO 
