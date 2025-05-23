@@ -1,5 +1,8 @@
 ## Setup
 
+This is currently a work in progress! When it's done (hopefully before end May) you should see a tick 
+in the main `README.md`.
+
 You'll need to 
 
 `pip install python-chess` 
@@ -7,7 +10,14 @@ You'll need to
 in addition to the packages in the main `README.md` since we use that to do 
 chess-specific board manipulations/computations, etc.
 
-## Overview
+## TODOs
+
+- Understand how AlphaZero represents board
+    - Write `board2input` in `utils.py` to take `chess.Board` to input tensors for the `ChessNet` in `model.py` 
+    - Implement masking on policy forward pass in `ChessNet` in `model.py` 
+- Write `train.py` assuming `MCTS` implemented (it's not) to understand high level API. 
+
+## Goal
 
 - `model.py` defines the convolutional ResNet that we use as our architecture, with a policy and value head. 
 - `MCTS.py` defines the search logic taking a state and outputting an optimal action. 
