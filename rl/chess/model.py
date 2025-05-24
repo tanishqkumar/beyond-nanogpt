@@ -1,5 +1,14 @@
 import torch, torch.nn as nn, torch.nn.functional as F 
+import chess
 from typing import Tuple, List 
+from utils import board2input
+
+# force reimport utils to iterate faster when I make changes
+import importlib
+import sys
+if "utils" in sys.modules:
+    importlib.reload(sys.modules["utils"])
+from utils import board2input
 
 # first up projects channels, last down projects 
 class ResBlock(nn.Module):
@@ -37,17 +46,14 @@ class ResBlock(nn.Module):
 
 
 class ChessNet(nn.Module): 
-    def __init__(self, nblocks: int = 6, M: int = 8, T: int = 8, L: int = 8, action_dim: int = 4672): 
+    def __init__(self, nblocks: int = 6, in_ch:int = 119, action_dim: int = 4672): 
         super().__init__()
         self.nblocks = nblocks
-        self.M = M
-        self.T = T
-        self.L = L
         self.action_dim = action_dim
-        self.hidden_ch = 256 # hidden layers constant feature dim 
-        self.in_ch = M*T + L 
-        self.out_ch = M*T + L 
-        self.hidden_dim_flat = 8 * 8 * (M * T + L)
+        self.hidden_ch = 128 # hidden layers constant feature dim 
+        self.in_ch = in_ch
+        self.out_ch = in_ch
+        self.hidden_dim_flat = 8 * 8 * in_ch
     
         self.first = ResBlock(in_ch=self.in_ch, out_ch=self.hidden_ch, first=True)
         self.hidden_blocks = nn.ModuleList([
@@ -59,8 +65,16 @@ class ChessNet(nn.Module):
         self.value_head = nn.Linear(self.hidden_dim_flat, 1) # 8 * 8 * (MT + L) -> 1, applied across batch dim 
         self.policy_head = nn.Linear(self.hidden_dim_flat, action_dim)
     
+    def mask_legal(self, logits: torch.Tensor, board_history: List[chess.Board]) -> torch.Tensor: 
+        # TODO: this sets logits at illegal indices to float('-inf')
+        return logits
+
+    def board2input(self, board_history: List[chess.Board]) -> torch.Tensor: 
+        return board2input(board_history) 
     
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]: # [b, 8, 8, MT + L] -> [[b, 1], [b, nactions]]
+    def forward(self, board_history: List[chess.Board]) -> Tuple[torch.Tensor, torch.Tensor]: # [b, mtl, 8, 8] -> [[b, 1], [b, nactions]]
+        x = self.board2input(board_history).unsqueeze(0) # add batchdim
+
         h = self.first(x)
         for block in self.hidden_blocks: 
             h = block(h) # residual is handled inside block 
@@ -70,11 +84,28 @@ class ChessNet(nn.Module):
         values, logits = self.value_head(h_flat), self.policy_head(h_flat)
         # TODO: mask illegal moves using chess infra (will have to understand representation)
 
-        return values, logits
+        return values, self.mask_legal(logits, board_history)
         
-# simple test for me to tune defaults, want it to have ~10m params by default
+# simple test to tune defaults and sanity check, want it to have 10-20m params by default
 if __name__ == "__main__":
     print(f'Initializing ChessNet...')
-    net = ChessNet()
+
+    mtl = 119 # in channels, M*T + L, see paper on how they represent a cheess board 
+        # to give it as input into their alphazero conv neural net 
+    nactions = 4672
+
+    net = ChessNet(in_ch = mtl)
     num = sum(p.numel() for p in net.parameters())
-    print(f'Net has {num/1e6:.3f}M parameters!')
+    print(f'Net has {num/1e6:.1f}M parameters!')
+
+    print(f'Testing forward pass with real chess board...')
+    board = chess.Board()
+    history = [board]
+    v, l = net(history)
+    assert v.shape == (1, 1) and l.shape == (1, nactions)
+
+    v, l = net(board)
+    assert v.shape == (1, 1) and l.shape == (1, nactions)
+    print(f'Forward test passed with real input!')
+    print(f'--' * 20)
+    print(f'ALL TESTS PASSED.')
