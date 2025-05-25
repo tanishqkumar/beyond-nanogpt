@@ -10,6 +10,7 @@ in addition to the packages in the main `README.md`.
 
 ## TODOs
 
+- [x] Define the convolutional ResNet architecture for policy/value networks in `model.py`. 
 - [x] Understand how AlphaZero represents board
     - [x] Write `board2input` in `utils.py` to take `chess.Board` to input tensors for the `ChessNet` in `model.py` 
     - [x] Implement masking on policy forward pass in `ChessNet` in `model.py` 
