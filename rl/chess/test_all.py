@@ -6,6 +6,7 @@ import torch
 from model import ChessNet 
 from utils import move2index
 from env import ChessEnv
+from buffer import Buffer
 import pytest 
 
 
@@ -25,6 +26,10 @@ def nactions():
 @pytest.fixture
 def env(): 
     return ChessEnv()
+
+@pytest.fixture
+def buffer(): 
+    return Buffer(buff_sz = 10_000)
 
 ## define tests, they will run by themselves when pytest calls this file 
 
@@ -117,3 +122,28 @@ def test_env_step(env: ChessEnv):
         # Try to make the same move again (should be illegal)
         same_move_new_idx = move2index(env.board, move)
         env.step(same_move_new_idx)
+
+def test_buffer(buffer: Buffer, board: chess.Board, net: ChessNet, nactions: int): # test push and get_batch
+    # Test pushing to buffer
+    val, policy = net([board])
+    val_scalar = val.item()
+    action = torch.randint(0, nactions, (nactions,))  # Create action tensor with proper shape
+    buffer.push(board, val_scalar, action)
+    
+    # Push a few more samples to test batch retrieval
+    for _ in range(5):
+        val, policy = net([board])
+        val_scalar = val.item()
+        action = torch.randint(0, nactions, (nactions,))
+        buffer.push(board, val_scalar, action)
+    
+    # Test get_batch method
+    batch_size = 3
+    states, values, actions = buffer.get_batch(batch_size)
+    
+    # Verify batch shapes and types
+    assert len(states) == batch_size
+    assert values.shape == (batch_size, 1)
+    assert actions.shape == (batch_size, nactions)
+    assert isinstance(values, torch.Tensor)
+    assert isinstance(actions, torch.Tensor)
