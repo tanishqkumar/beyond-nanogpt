@@ -1,6 +1,6 @@
 import chess
 import torch 
-from typing import List, Optional 
+from typing import List, Optional, Tuple, Dict, Any
 
 TYPES = [chess.PAWN, chess.ROOK, chess.KING,
             chess.QUEEN, chess.BISHOP, chess.KNIGHT]
@@ -65,84 +65,59 @@ def board2input(
 # moved, along one of eight relative compass directions {N,NE,E,SE,S,SW,W,NW} * len
 
 # output in 0-72 template planes 
-def template_id(dx: int, dy: int, promo: Optional[chess.PieceType] = None) -> int: 
-    # return a dict of 73, 56 queen-like, 8 knight, 9 promo 
+def get_template_dict() -> Dict[Tuple[int, int, Optional[chess.PieceType]], int]:
+    """Return a dict mapping all possible (dx, dy, promo) tuples to template IDs."""
+    template_dict = {}
+    
+    # Queen-like moves (0-55): 8 directions × 7 distances
+    directions = [
+        (0, 1),   # N
+        (1, 1),   # NE  
+        (1, 0),   # E
+        (1, -1),  # SE
+        (0, -1),  # S
+        (-1, -1), # SW
+        (-1, 0),  # W
+        (-1, 1)   # NW
+    ]
+    
+    for dir_idx, (dx_unit, dy_unit) in enumerate(directions):
+        for distance in range(1, 8):  # 1-7 squares
+            dx = dx_unit * distance
+            dy = dy_unit * distance
+            template_id = dir_idx * 7 + (distance - 1)
+            template_dict[(dx, dy, None)] = template_id
+    
+    # Knight moves (56-63): 8 possible knight moves
+    knight_moves = [
+        (1, 2),   # NNE
+        (2, 1),   # ENE
+        (2, -1),  # ESE
+        (1, -2),  # SSE
+        (-1, -2), # SSW
+        (-2, -1), # WSW
+        (-2, 1),  # WNW
+        (-1, 2)   # NNW
+    ]
+    
+    for knight_idx, (dx, dy) in enumerate(knight_moves):
+        template_dict[(dx, dy, None)] = 56 + knight_idx
+    
+    # Underpromotion moves (64-72): 3 piece types × 3 directions
+    promotion_pieces = [chess.KNIGHT, chess.BISHOP, chess.ROOK]
+    promotion_directions = [
+        (1, -1),  # diagonal left
+        (1, 1),   # diagonal right  
+        (1, 0)    # straight ahead
+    ]
+    
+    for piece_idx, piece_type in enumerate(promotion_pieces):
+        for dir_idx, (dx, dy) in enumerate(promotion_directions):
+            template_id = 64 + piece_idx * 3 + dir_idx
+            template_dict[(dx, dy, piece_type)] = template_id
+    
+    return template_dict
 
-    # underpromotion cases
-    # Knights (64-66), Bishops (67-69), Rooks (70-72)
-    # For pawn promotions, we need to check if it's a promotion move and what piece it becomes
-    if promo is not None:
-        # Get the base index for the promotion type (knight=64, bishop=67, rook=70)
-        if promo == chess.KNIGHT:
-            base_idx = 64
-        elif promo == chess.BISHOP:
-            base_idx = 67
-        elif promo == chess.ROOK:
-            base_idx = 70
-        else:  # QUEEN promotions are handled by the normal move encoding
-            return template_id(dx, dy, None)
-            
-        # Determine which diagonal: 0 for file-1, 1 for file+1, 2 for straight ahead
-        if dx == 1 and abs(dy) == 1:  # Diagonal capture
-            diagonal_type = 0 if dy == -1 else 1  # Left or right diagonal
-        elif dx == 1 and dy == 0:  # Straight ahead
-            diagonal_type = 2
-        else:
-            # Unexpected promotion move
-            raise Exception('Template ID error, unexpected promotion move...')
-        return base_idx + diagonal_type
-    
-    # queen-like is directions * len 
-    elif abs(dx) == abs(dy): # eg. [3, -3] is SE so entry 3 in list above, and len 3 so k = 8 * len + entry = 27 in 0, ..., 72
-        # Determine direction (0-7) for diagonal moves
-        direction = 0
-        if dx > 0 and dy > 0:
-            direction = 1  # NE
-        elif dx > 0 and dy < 0:
-            direction = 3  # SE
-        elif dx < 0 and dy < 0:
-            direction = 5  # SW
-        elif dx < 0 and dy > 0:
-            direction = 7  # NW
-            
-        length = abs(dx)
-        return direction * 7 + (length - 1)
-    elif (dx == 0 and abs(dy) > 0) or (dy == 0 and abs(dx) > 0): 
-        # Determine direction (0-7) for orthogonal moves
-        direction = 0
-        if dx == 0 and dy > 0:
-            direction = 0  # N
-        elif dx > 0 and dy == 0:
-            direction = 2  # E
-        elif dx == 0 and dy < 0:
-            direction = 4  # S
-        elif dx < 0 and dy == 0:
-            direction = 6  # W
-            
-        length = max(abs(dx), abs(dy))
-        return direction * 7 + (length - 1)
-    # knight-like moves
-    elif (abs(dx) == 1 and abs(dy) == 2) or (abs(dx) == 2 and abs(dy) == 1): 
-        # Knight moves are indexed from 56 to 63 (8 possible knight moves)
-        # Map each knight move pattern to a specific index in that range
-        if dx == 1 and dy == 2:
-            return 56  # Knight NNE
-        elif dx == 2 and dy == 1:
-            return 57  # Knight ENE
-        elif dx == 2 and dy == -1:
-            return 58  # Knight ESE
-        elif dx == 1 and dy == -2:
-            return 59  # Knight SSE
-        elif dx == -1 and dy == -2:
-            return 60  # Knight SSW
-        elif dx == -2 and dy == -1:
-            return 61  # Knight WSW
-        elif dx == -2 and dy == 1:
-            return 62  # Knight WNW
-        elif dx == -1 and dy == 2:
-            return 63  # Knight NNW
-    
-    
 # takes eg. "b5e7" -> idx 2373 out of 4672 in action idx 
 def move2index(board: chess.Board, move: chess.Move) -> int: 
     from_sq, to_sq = move.from_square, move.to_square
@@ -156,9 +131,43 @@ def move2index(board: chess.Board, move: chess.Move) -> int:
     # get dx, dy
     dx, dy = to_rank - from_rank, to_file - from_file
     # get channel (template id)
-    k = template_id(dx, dy, move.promotion)
+    dct = get_template_dict(dx, dy, move.promotion)
+    k = dct[(dx, dy, move.promotion)]
     
     return 64 * k + from_sq
+
+# define the inverse, for use in eg. chess env to take (s, a) -> (s', r, d) 
+    #   when parsing action, a, an int in [nactions], to board.move(a), a chess.Move
+def index2move(board: chess.Board, action: int) -> chess.Move: 
+    from_sq, k = divmod(action, 64)
+
+
+    # use template id to see if it involves promotion
+    is_promo = bool(k >= 64) # template ids 64 - 72 inclusive are 9 underpromotions 
+    template_dct = get_template_dict()
+    inv_template_dct = {v:k for k,v in template_dct.items()}
+
+    if is_promo: 
+        dx, dy, promo = inv_template_dct[k]
+        to_sq = from_sq + dx * 8 + dy
+        
+        # invert to_sq if black
+        if board.turn == chess.BLACK:
+            from_sq = 63 - from_sq
+            to_sq = 63 - to_sq
+            
+        return chess.Move(from_sq, to_sq, promo) 
+    else: 
+        dx, dy, _ = inv_template_dct[k]
+        # which should tell us to_sq
+        to_sq = from_sq + dx * 8 + dy
+
+        # invert to_sq if black
+        if board.turn == chess.BLACK:
+            from_sq = 63 - from_sq
+            to_sq = 63 - to_sq
+
+        return chess.Move(from_sq, to_sq, None)
 
 
 # takes a board to possible next moves that are legal out of [4672] moves
@@ -170,6 +179,56 @@ def legal_mask(logits: torch.Tensor, board: chess.Board, nactions: int = 4672) -
         mask[idx] = True
 
     return logits.masked_fill(~mask, float('-inf'))
-    
 
+
+def eval_pos(board: chess.Board, move_count: int, max_moves: int) -> Tuple[float, bool, Dict[str, Any]]: 
+        info = {}
+        if board.is_game_over(): 
+            # casework on cause
+            outcome = board.outcome
+            if outcome.termination == chess.Termination.CHECKMATE and outcome.winner == board.turn: 
+                info["game_over"] = True
+                info["termination_reason"] = "checkmate"
+                info["winner"] = board.turn 
+                info["fen"] = board.fen()
+                
+                return (1., True, info)
+            elif outcome.termination == chess.Termination.CHECKMATE and outcome.winner != board.turn:
+                info["game_over"] = True
+                info["termination_reason"] = "checkmate"
+                info["winner"] = not board.turn 
+                info["fen"] = board.fen()
+                
+                return (-1., True, info)
+            else:
+                # Handle draws, stalemates, and other game endings
+                info["game_over"] = True
+                info["fen"] = board.fen()
+                
+                if outcome.termination == chess.Termination.STALEMATE:
+                    info["termination_reason"] = "stalemate"
+                elif outcome.termination == chess.Termination.INSUFFICIENT_MATERIAL:
+                    info["termination_reason"] = "insufficient_material"
+                elif outcome.termination == chess.Termination.SEVENTYFIVE_MOVES:
+                    info["termination_reason"] = "seventyfive_moves"
+                elif outcome.termination == chess.Termination.FIVEFOLD_REPETITION:
+                    info["termination_reason"] = "fivefold_repetition"
+                elif outcome.termination == chess.Termination.FIFTY_MOVES:
+                    info["termination_reason"] = "fifty_moves"
+                elif outcome.termination == chess.Termination.THREEFOLD_REPETITION:
+                    info["termination_reason"] = "threefold_repetition"
+                else:
+                    info["termination_reason"] = "unknown"
+                
+                info["winner"] = None  # Draw
+                return (0., True, info)
+        elif move_count >= max_moves:
+            # Game ended due to move limit
+            info["game_over"] = True
+            info["termination_reason"] = "max_moves_reached"
+            info["winner"] = None
+            info["fen"] = board.fen()
+            return (0., True, info)
+        else: 
+            return (0., False, info) # no reward, game not over
 
