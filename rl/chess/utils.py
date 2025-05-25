@@ -1,6 +1,7 @@
 import chess
 import torch 
 from typing import List, Optional, Tuple, Dict, Any
+from collections import deque
 
 TYPES = [chess.PAWN, chess.ROOK, chess.KING,
             chess.QUEEN, chess.BISHOP, chess.KNIGHT]
@@ -11,17 +12,24 @@ def get_empty():
     return chess.Board(fen=None)
 
 def board2input(
-        board_history: List[chess.Board]    
+        board_history: deque[chess.Board]    
     ) -> torch.Tensor: # chess.Board -> [MT+ L, 8, 8] input     
 
     # Convert single board to list if needed
-    if not isinstance(board_history, list):
-        board_history = [board_history]
+    if isinstance(board_history, chess.Board):
+        dq = deque(maxlen=8)
+        dq.append(board_history)
+        board_history = dq
 
     M = len(board_history)
     if M < 8: 
         padding_boards = [get_empty() for _ in range(8-M)]
-        board_history = padding_boards + board_history
+        padded_history = deque(maxlen=8)
+        for board in padding_boards:
+            padded_history.append(board)
+        for board in board_history:
+            padded_history.append(board)
+        board_history = padded_history
 
     M = len(board_history)
     T = len(TYPES)*2 + 2       # 12 piece‐planes + 2 repetition‐flags
@@ -61,7 +69,7 @@ def board2input(
     return out 
 
 # The first 56 planes encode
-# possible ‘queen moves’ for any piece: a number of squares [1..7] in which the piece will be
+# possible 'queen moves' for any piece: a number of squares [1..7] in which the piece will be
 # moved, along one of eight relative compass directions {N,NE,E,SE,S,SW,W,NW} * len
 
 # output in 0-72 template planes 
@@ -131,7 +139,7 @@ def move2index(board: chess.Board, move: chess.Move) -> int:
     # get dx, dy
     dx, dy = to_rank - from_rank, to_file - from_file
     # get channel (template id)
-    dct = get_template_dict(dx, dy, move.promotion)
+    dct = get_template_dict()
     k = dct[(dx, dy, move.promotion)]
     
     return 64 * k + from_sq
@@ -139,8 +147,7 @@ def move2index(board: chess.Board, move: chess.Move) -> int:
 # define the inverse, for use in eg. chess env to take (s, a) -> (s', r, d) 
     #   when parsing action, a, an int in [nactions], to board.move(a), a chess.Move
 def index2move(board: chess.Board, action: int) -> chess.Move: 
-    from_sq, k = divmod(action, 64)
-
+    k, from_sq = divmod(action, 64)
 
     # use template id to see if it involves promotion
     is_promo = bool(k >= 64) # template ids 64 - 72 inclusive are 9 underpromotions 
@@ -231,4 +238,3 @@ def eval_pos(board: chess.Board, move_count: int, max_moves: int) -> Tuple[float
             return (0., True, info)
         else: 
             return (0., False, info) # no reward, game not over
-

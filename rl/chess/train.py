@@ -1,7 +1,7 @@
+from __future__ import annoations 
 import torch, torch.nn as nn, torch.nn.functional as F
 import chess 
 from dataclasses import dataclass 
-from __future__ import annoations 
 from typing import List, Tuple, Optional
 from model import ChessNet
 from utils import board2input

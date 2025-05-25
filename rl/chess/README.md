@@ -4,10 +4,9 @@ This is currently a work in progress!
 
 You'll need to 
 
-`pip install python-chess` 
+`pip install python-chess pytest` 
 
-in addition to the packages in the main `README.md` since we use that to do 
-chess-specific board manipulations/computations, etc.
+in addition to the packages in the main `README.md`.
 
 ## TODOs
 
@@ -32,7 +31,7 @@ chess-specific board manipulations/computations, etc.
 - `utils.py` defines important helper functions we use throughout. 
 - `env.py` sets up a wrapper on `chess.Board` allowing us to treat it like an RL environment. 
 - `eval.py` takes in a path for trained weights, outputs Elo by playing many games against a model whose Elo is known.
-- `run_tests.py` runs unit and integration tests to check each major component is working correctly on its own. 
+- `tests.py` runs unit and integration tests, use `pytest tests.py -v` to launch.  
 - `train.py` is the file to run, outlining the training loop and assimilating all other files.  
 
 ## Lessons Learned 

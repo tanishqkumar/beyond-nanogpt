@@ -1,7 +1,7 @@
 import torch, torch.nn as nn, torch.nn.functional as F 
 import chess
 from typing import Tuple, List 
-from utils import board2input, legal_mask, move2index
+from utils import board2input, legal_mask
 
 # first up projects channels, last down projects 
 class ResBlock(nn.Module):

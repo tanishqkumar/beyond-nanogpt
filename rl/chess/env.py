@@ -1,9 +1,9 @@
+from __future__ import annotations 
 import torch, torch.nn as nn, torch.nn.functional 
 import chess 
 from typing import List, Tuple, Optional, Dict, Any 
-from __future__ import annotations 
 from collections import deque 
-from utils import move2index, index2move, board2input, eval_pos
+from utils import index2move, board2input, eval_pos
 from copy import deepcopy 
 
 class ChessEnv: 
@@ -19,7 +19,7 @@ class ChessEnv:
         self._update_history()
 
     def step(self, a_idx: int) -> Tuple[torch.Tensor, float, bool]: # returns (s', r, done)
-        a_move = index2move(a_idx) # TODO this needs to be implemented in utils.py 
+        a_move = index2move(self.board, a_idx) 
 
         if a_move not in self.board.legal_moves: 
             raise Exception("Error: ChessEnv.step given an illegal move!")
@@ -29,7 +29,7 @@ class ChessEnv:
         self._update_history()
 
         s_next = board2input(self.board_history)
-        reward, done, info = eval_pos(self.board.copy(), self.move_count, self.max_moves)
+        reward, done, info = eval_pos(self.board, self.move_count, self.max_moves)
         
         return (s_next, reward, done, info)
 
