@@ -18,7 +18,10 @@ chess-specific board manipulations/computations, etc.
 - [ ] Implement buffer for value/policy nets that MCTS can feed. 
 - [ ] Write `train.py` skeleton. 
 - [ ] Implement MCTS. 
-- [ ] Implement dynamic batching to make sure forward/backward on networks is constantly high-batch. 
+- [ ] Flesh out `train.py` into a full (if slow) training loop. 
+- [ ] Optimizate for speed 
+    - [ ] Go through all above, seeing what can be easily vectorized. 
+    - [ ] Implement dynamic batching for rollouts. 
 
 ## Goal
 
