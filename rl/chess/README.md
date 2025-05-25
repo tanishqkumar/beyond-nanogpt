@@ -27,8 +27,9 @@ chess-specific board manipulations/computations, etc.
 - `config.py` defines key dataclasses and configuration objects that make the rest of the code clean. 
 - `buffer.py` implements the buffer that stores experiences collected during MCTS and used to train both the policy/value networks. 
 - `utils.py` defines important helper functions we use throughout. 
-- `self_play.py` defines the self-play logic. 
+- `env.py` sets up a wrapper on `chess.Board` allowing us to treat it like an RL environment. 
 - `eval.py` takes in a path for trained weights, outputs Elo by playing many games against a model whose Elo is known.
+- `run_tests.py` runs unit and integration tests to check each major component is working correctly on its own. 
 - `train.py` is the file to run, outlining the training loop and assimilating all other files.  
 
 ## Lessons Learned 
