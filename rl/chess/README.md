@@ -16,6 +16,7 @@ in addition to the packages in the main `README.md`.
     - [x] Implement masking on policy forward pass in `ChessNet` in `model.py` 
 - [x] Implement environment based on `chess.Board` that supports `.reset`, `.step`, and `.clone`. 
 - [x] Implement buffer for value/policy nets that MCTS can feed. 
+- [x] Write tests for everything. 
 - [ ] Write `train.py` skeleton. 
 - [ ] Implement MCTS. 
 - [ ] Flesh out `train.py` into a full (if slow) training loop. 
