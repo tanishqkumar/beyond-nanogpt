@@ -1,7 +1,6 @@
 ## Setup
 
-This is currently a work in progress! When it's done (hopefully before end May) you should see a tick 
-in the main `README.md`.
+This is currently a work in progress! 
 
 You'll need to 
 
@@ -12,10 +11,13 @@ chess-specific board manipulations/computations, etc.
 
 ## TODOs
 
-- Understand how AlphaZero represents board
-    - Write `board2input` in `utils.py` to take `chess.Board` to input tensors for the `ChessNet` in `model.py` 
-    - Implement masking on policy forward pass in `ChessNet` in `model.py` 
-- Write `train.py` assuming `MCTS` implemented (it's not) to understand high level API. 
+[x] Understand how AlphaZero represents board
+    [x] Write `board2input` in `utils.py` to take `chess.Board` to input tensors for the `ChessNet` in `model.py` 
+    [x] Implement masking on policy forward pass in `ChessNet` in `model.py` 
+[ ] Write `train.py` assuming `MCTS` implemented (it's not) to understand high level API. 
+[ ] Implement MCTS. 
+    [ ] Implement buffer for value/policy nets that MCTS can feed. 
+[ ] Implement dynamic batching to make sure forward/backward on networks is constantly high-batch. 
 
 ## Goal
 
