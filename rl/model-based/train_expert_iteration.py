@@ -359,7 +359,8 @@ class TrainConfig:
     batch_size: int = 128 
     nsteps: int = 1_000
     num_rollouts: int = 100
-    buff_sz: int = 10_000
+    policy_buff_sz: int = 10_000
+    value_buff_sz: int = 10_000
     num_sims: int = 500
     tree_max_depth: int = 20
     rollout_max_depth: int = 20
@@ -409,7 +410,7 @@ def train(cfg: TrainConfig = TrainConfig(), verbose: bool = False, use_wandb: bo
     value_net = ValueNet(sdim=cfg.sdim, hidden_dim=cfg.hidden_dim, nlayers=cfg.nlayers).to(device)
     policy_opt = torch.optim.AdamW(policy_net.parameters(), lr=cfg.lr)
     value_opt = torch.optim.AdamW(value_net.parameters(), lr=cfg.lr)
-    buffer = Buffer(policy_buff_sz=cfg.buff_sz, value_buff_sz=cfg.buff_sz, sdim=cfg.sdim, adim=cfg.adim)
+    buffer = Buffer(policy_buff_sz=cfg.policy_buff_sz, value_buff_sz=cfg.value_buff_sz, sdim=cfg.sdim, adim=cfg.adim)
 
     for step in range(cfg.nsteps): 
         if verbose and step % 100 == 0:
