@@ -8,7 +8,7 @@ You'll need to
 
 in addition to the packages in the main `README.md`.
 
-## TODOs
+## Worklog
 
 - [x] Define the convolutional ResNet architecture for policy/value networks in `model.py`. 
 - [x] Understand how AlphaZero represents board
@@ -19,12 +19,14 @@ in addition to the packages in the main `README.md`.
 - [x] Write tests for everything. 
 - [x] Write `train.py` skeleton. 
 - [x] Implement MCTS. 
-- [ ] Flesh out `train.py` into a full (if slow) training loop, fixing presumably tons of small bugs. 
+- [ ] Flesh out `train.py` into a full training loop, fixing presumably tons of small bugs. 
 - [ ] Implement a basic evaluation: play against a policy outputting random legal moves. 
 - [ ] Optimizate for speed 
     - [ ] Profile to find slowest parts. 
     - [ ] Go through all above, seeing what can be easily vectorized. 
     - [ ] Implement dynamic batching for rollouts. 
+- [ ] Implement full evaluation and Elo computation against known engine. 
+- [ ] Train a model overnight on an H100 that can beat me (Tanishq) in chess. 
 
 ## Goal
 
