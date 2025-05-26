@@ -19,7 +19,8 @@ in addition to the packages in the main `README.md`.
 - [x] Write tests for everything. 
 - [x] Write `train.py` skeleton. 
 - [x] Implement MCTS. 
-- [ ] Flesh out `train.py` into a full (if slow) training loop. 
+- [ ] Flesh out `train.py` into a full (if slow) training loop, fixing presumably tons of small bugs. 
+- [ ] Implement a basic evaluation: play against a policy outputting random legal moves. 
 - [ ] Optimizate for speed 
     - [ ] Profile to find slowest parts. 
     - [ ] Go through all above, seeing what can be easily vectorized. 
