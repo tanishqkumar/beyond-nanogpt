@@ -188,7 +188,7 @@ def legal_mask(logits: torch.Tensor, board: chess.Board, nactions: int = 4672) -
     return logits.masked_fill(~mask, float('-inf'))
 
 
-def eval_pos(board: chess.Board, move_count: int, max_moves: int) -> Tuple[float, bool, Dict[str, Any]]: 
+def eval_pos(board: chess.Board) -> Tuple[float, bool, Dict[str, Any]]: 
         info = {}
         if board.is_game_over(): 
             # casework on cause
@@ -229,12 +229,5 @@ def eval_pos(board: chess.Board, move_count: int, max_moves: int) -> Tuple[float
                 
                 info["winner"] = None  # Draw
                 return (0., True, info)
-        elif move_count >= max_moves:
-            # Game ended due to move limit
-            info["game_over"] = True
-            info["termination_reason"] = "max_moves_reached"
-            info["winner"] = None
-            info["fen"] = board.fen()
-            return (0., True, info)
         else: 
             return (0., False, info) # no reward, game not over

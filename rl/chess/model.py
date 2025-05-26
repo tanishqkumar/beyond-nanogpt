@@ -2,6 +2,8 @@ import torch, torch.nn as nn, torch.nn.functional as F
 import chess
 from typing import Tuple, List 
 from utils import board2input, legal_mask
+from collections import deque
+from config import ModelConfig
 
 # first up projects channels, last down projects 
 class ResBlock(nn.Module):
@@ -37,29 +39,28 @@ class ResBlock(nn.Module):
             
         return self.act(h + og_x)
 
-
 class ChessNet(nn.Module): 
-    def __init__(self, nblocks: int = 6, in_ch:int = 119, action_dim: int = 4672): 
+    def __init__(self, cfg: ModelConfig): 
         super().__init__()
-        self.nblocks = nblocks
-        self.action_dim = action_dim
-        self.hidden_ch = 128 # hidden layers constant feature dim 
-        self.in_ch = in_ch
-        self.out_ch = in_ch
-        self.hidden_dim_flat = 8 * 8 * in_ch
+        self.num_blocks = cfg.num_blocks
+        self.action_dim = cfg.nactions
+        self.hidden_ch = cfg.hidden_ch # hidden layers constant feature dim 
+        self.in_ch = cfg.mtl
+        self.out_ch = cfg.mtl
+        self.hidden_dim_flat = 8 * 8 * cfg.mtl
     
         self.first = ResBlock(in_ch=self.in_ch, out_ch=self.hidden_ch, first=True)
         self.hidden_blocks = nn.ModuleList([
-            ResBlock(in_ch=self.hidden_ch, out_ch=self.hidden_ch) for _ in range(nblocks-2) 
+            ResBlock(in_ch=self.hidden_ch, out_ch=self.hidden_ch) for _ in range(cfg.num_blocks-2) 
         ])
         self.last = ResBlock(in_ch=self.hidden_ch, out_ch=self.out_ch, last=True)
 
 
         self.value_head = nn.Linear(self.hidden_dim_flat, 1) # 8 * 8 * (MT + L) -> 1, applied across batch dim 
-        self.policy_head = nn.Linear(self.hidden_dim_flat, action_dim)
+        self.policy_head = nn.Linear(self.hidden_dim_flat, cfg.nactions)
     
     def forward(self, board_history: List[chess.Board], nactions: int = 4672) -> Tuple[torch.Tensor, torch.Tensor]: # [b, mtl, 8, 8] -> [[b, 1], [b, nactions]]
-        if not isinstance(board_history, list): 
+        if not isinstance(board_history, deque): 
             board_history = [board_history]
 
         x = board2input(board_history).unsqueeze(0) # add batchdim

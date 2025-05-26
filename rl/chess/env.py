@@ -29,7 +29,7 @@ class ChessEnv:
         self._update_history()
 
         s_next = board2input(self.board_history)
-        reward, done, info = eval_pos(self.board, self.move_count, self.max_moves)
+        reward, done, info = eval_pos(self.board)
         
         return (s_next, reward, done, info)
 
@@ -42,12 +42,13 @@ class ChessEnv:
 
         return new_env
 
-    def reset(self, board: Optional[chess.Board] = None): 
+    def reset(self, board: Optional[chess.Board] = None) -> chess.Board: 
         self.move_count = 0
         self.board = board if board else chess.Board()
         self.init_board = self.board.copy()
         self.board_history = deque(maxlen=self.history_len)
         self._update_history()
+        return self.board
 
     ## SECONDARY/HELPER METHODS ## 
     def _update_history(self): 

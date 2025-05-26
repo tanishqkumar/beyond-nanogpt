@@ -7,13 +7,17 @@ from model import ChessNet
 from utils import move2index
 from env import ChessEnv
 from buffer import Buffer
+from MCTS import MCTS, get_root
+from config import MCTSConfig, ModelConfig
+from collections import deque
 import pytest 
 
 
 ## define objects/constants we'll use in tests in the way pytests wants ##
 @pytest.fixture
 def net(): 
-    return ChessNet(in_ch=119)
+    cfg = ModelConfig()
+    return ChessNet(cfg)
 
 @pytest.fixture
 def board(): 
@@ -34,7 +38,7 @@ def buffer():
 ## define tests, they will run by themselves when pytest calls this file 
 
 def test_forward_pass(net: ChessNet, board: chess.Board, nactions: int):
-    history = [board]
+    history = deque([board], maxlen=8)
     
     v, l = net(history)
 
@@ -125,14 +129,15 @@ def test_env_step(env: ChessEnv):
 
 def test_buffer(buffer: Buffer, board: chess.Board, net: ChessNet, nactions: int): # test push and get_batch
     # Test pushing to buffer
-    val, policy = net([board])
+    history = deque([board], maxlen=8)
+    val, policy = net(history)
     val_scalar = val.item()
     action = torch.randint(0, nactions, (nactions,))  # Create action tensor with proper shape
     buffer.push(board, val_scalar, action)
     
     # Push a few more samples to test batch retrieval
     for _ in range(5):
-        val, policy = net([board])
+        val, policy = net(history)
         val_scalar = val.item()
         action = torch.randint(0, nactions, (nactions,))
         buffer.push(board, val_scalar, action)
@@ -147,3 +152,68 @@ def test_buffer(buffer: Buffer, board: chess.Board, net: ChessNet, nactions: int
     assert actions.shape == (batch_size, nactions)
     assert isinstance(values, torch.Tensor)
     assert isinstance(actions, torch.Tensor)
+
+# 1. test the mcts returns a valid policy with expected shape 
+def test_mcts_sanity_check(env: ChessEnv, net: ChessNet, nactions: int): 
+    cfg = MCTSConfig(
+        num_sims=10, 
+        cpuct=1.0, 
+        noise_scale=1.0, 
+    )
+
+    empirical_policy = MCTS(cfg, env.board.copy(), net, env.clone(), nactions)
+
+    assert empirical_policy.shape == (nactions,)
+    assert torch.all(empirical_policy >= 0)
+    assert torch.isclose(empirical_policy.sum(), torch.tensor(1.0), atol=1e-5)
+
+    legal_indices = [move2index(env.board, m) for m in env.board.legal_moves]
+    # check legality 
+    for i in range(nactions):
+        if i in legal_indices: 
+            pass 
+        else: 
+            assert empirical_policy[i] == 0
+
+
+# 2. test the tree is growing correctly during search 
+def test_mcts_tree_growth(env: ChessEnv, net: ChessNet, nactions: int):
+    cfg = MCTSConfig(
+        num_sims=5,
+        cpuct=1.0,
+        noise_scale=0.1,
+    )
+    
+    # Get the root node before running MCTS
+    root = get_root(env.board.copy(), net, nactions, noise_scale=cfg.noise_scale)
+    
+    # Initially, root should have no children
+    assert len(root.children) == 0
+    assert root.count == 0
+    
+    # Run MCTS with a small number of simulations
+    empirical_policy = MCTS(cfg, env.board.copy(), net, env.clone(), nactions)
+    
+    # After MCTS, we need to get the root again to check its state
+    # Since MCTS creates its own root internally, we'll test indirectly
+    # by checking that the empirical policy has non-zero values for legal moves
+    legal_indices = [move2index(env.board, m) for m in env.board.legal_moves]
+    
+    # At least some legal moves should have been explored (non-zero probability)
+    explored_moves = sum(1 for i in legal_indices if empirical_policy[i] > 0)
+    assert explored_moves > 0, "MCTS should explore at least one legal move"
+    
+    # Test with more simulations to ensure tree grows
+    cfg_more_sims = MCTSConfig(
+        num_sims=20,
+        cpuct=1.0,
+        noise_scale=0.1,
+    )
+    
+    empirical_policy_more = MCTS(cfg_more_sims, env.board.copy(), net, env.clone(), nactions)
+    
+    # With more simulations, we should explore more moves or have more refined probabilities
+    explored_moves_more = sum(1 for i in legal_indices if empirical_policy_more[i] > 0)
+    
+    # Either more moves explored or similar number but different distribution
+    assert explored_moves_more >= explored_moves, "More simulations should not reduce exploration"
