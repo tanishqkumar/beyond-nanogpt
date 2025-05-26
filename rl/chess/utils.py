@@ -12,7 +12,8 @@ def get_empty():
     return chess.Board(fen=None)
 
 def board2input(
-        board_history: deque[chess.Board]    
+        board_history: deque[chess.Board],
+        device: torch.device = torch.device("cuda")    
     ) -> torch.Tensor: # chess.Board -> [MT+ L, 8, 8] input     
 
     # Convert single board to list if needed
@@ -36,7 +37,7 @@ def board2input(
     L = 7                             # turn, ply/1000, castling×4, halfmove/50
     mtl = M*T + L
 
-    out = torch.zeros(mtl, 8, 8, dtype=torch.float32)
+    out = torch.zeros(mtl, 8, 8, dtype=torch.float32, device=device)
 
     # M * T channels
     for i, board in enumerate(board_history): 
@@ -50,21 +51,20 @@ def board2input(
             row, col = divmod(pos, 8)
             out[ch, row, col] = 1.
 
-        # hardcode repetition flag channels
-        out[board_offset, :, :] = board.is_repetition(2)
-        board_offset+=1
-        out[board_offset, :, :] = board.is_repetition(4)
+        # hardcode repetition flag channels as last 2 in every set of T=14
+        out[board_offset+(T-2), :, :] = board.is_repetition(2)
+        out[board_offset+(T-1), :, :] = board.is_repetition(4)
 
     # L channels for special things 
     last = board_history[-1]
-    out[board_offset+1, :, :].fill_(int(last.turn))
-    out[board_offset+2, :, :].fill_(last.ply()/1000.0)
-    out[board_offset+3, :, :].fill_(last.has_kingside_castling_rights(last.turn))
-    out[board_offset+4, :, :].fill_(last.has_queenside_castling_rights(last.turn))
-    out[board_offset+5, :, :].fill_(last.has_kingside_castling_rights(not last.turn))
-    out[board_offset+6, :, :].fill_(last.has_queenside_castling_rights(not last.turn))
+    out[M*T, :, :].fill_(int(last.turn))
+    out[M*T+1, :, :].fill_(last.ply()/1000.0)
+    out[M*T+2, :, :].fill_(last.has_kingside_castling_rights(last.turn))
+    out[M*T+3, :, :].fill_(last.has_queenside_castling_rights(last.turn))
+    out[M*T+4, :, :].fill_(last.has_kingside_castling_rights(not last.turn))
+    out[M*T+5, :, :].fill_(last.has_queenside_castling_rights(not last.turn))
     # game is draw if pawns dont move for 50 moves 
-    out[board_offset+7, :, :].fill_(last.halfmove_clock / 50.0)
+    out[M*T+6, :, :].fill_(last.halfmove_clock / 50.0)
 
     return out 
 
@@ -140,9 +140,12 @@ def move2index(board: chess.Board, move: chess.Move) -> int:
     dx, dy = to_rank - from_rank, to_file - from_file
     # get channel (template id)
     dct = get_template_dict()
-    k = dct[(dx, dy, move.promotion)]
+    # fold queen promotion into regular queen like move 
+    promo = None if move.promotion == chess.QUEEN else move.promotion
+    k = dct[(dx, dy, promo)]
     
     return 64 * k + from_sq
+
 
 # define the inverse, for use in eg. chess env to take (s, a) -> (s', r, d) 
     #   when parsing action, a, an int in [nactions], to board.move(a), a chess.Move
@@ -150,40 +153,35 @@ def index2move(board: chess.Board, action: int) -> chess.Move:
     k, from_sq = divmod(action, 64)
 
     # use template id to see if it involves promotion
-    is_promo = bool(k >= 64) # template ids 64 - 72 inclusive are 9 underpromotions 
+    # is_promo = bool(k >= 64) # template ids 64 - 72 inclusive are 9 underpromotions 
     template_dct = get_template_dict()
     inv_template_dct = {v:k for k,v in template_dct.items()}
 
-    if is_promo: 
-        dx, dy, promo = inv_template_dct[k]
-        to_sq = from_sq + dx * 8 + dy
-        
-        # invert to_sq if black
-        if board.turn == chess.BLACK:
-            from_sq = 63 - from_sq
-            to_sq = 63 - to_sq
-            
-        return chess.Move(from_sq, to_sq, promo) 
-    else: 
-        dx, dy, _ = inv_template_dct[k]
-        # which should tell us to_sq
-        to_sq = from_sq + dx * 8 + dy
+    dx, dy, promo = inv_template_dct[k]
+    to_sq = from_sq + dx * 8 + dy
 
-        # invert to_sq if black
-        if board.turn == chess.BLACK:
-            from_sq = 63 - from_sq
-            to_sq = 63 - to_sq
+    if promo is None and board.piece_type_at(from_sq) == chess.PAWN and (to_sq // 8 == 0 or to_sq // 8 == 7):
+        promo = chess.QUEEN
 
-        return chess.Move(from_sq, to_sq, None)
+    # invert to_sq if black
+    if board.turn == chess.BLACK:
+        from_sq = 63 - from_sq
+        to_sq = 63 - to_sq
+
+    return chess.Move(from_sq, to_sq, promo)
 
 
 # takes a board to possible next moves that are legal out of [4672] moves
-def legal_mask(logits: torch.Tensor, board: chess.Board, nactions: int = 4672) -> torch.Tensor: 
-    # 1, nactions
-    mask = torch.zeros(nactions, dtype=torch.bool)
-    for mv in board.legal_moves: 
-        idx = move2index(board, mv)    
-        mask[idx] = True
+def legal_mask(logits: torch.Tensor, boards: List[chess.Board], nactions: int = 4672) -> torch.Tensor: 
+    assert logits.dim() == 2
+    b, _ = logits.shape
+    device = logits.device  
+    mask = torch.zeros((b, nactions), dtype=torch.bool, device=device)
+    
+    for i in range(b):
+        for mv in boards[i].legal_moves: 
+            idx = move2index(boards[i], mv)    
+            mask[i, idx] = True
 
     return logits.masked_fill(~mask, float('-inf'))
 
@@ -192,21 +190,21 @@ def eval_pos(board: chess.Board) -> Tuple[float, bool, Dict[str, Any]]:
         info = {}
         if board.is_game_over(): 
             # casework on cause
-            outcome = board.outcome
+            outcome = board.outcome()
             if outcome.termination == chess.Termination.CHECKMATE and outcome.winner == board.turn: 
                 info["game_over"] = True
                 info["termination_reason"] = "checkmate"
                 info["winner"] = board.turn 
                 info["fen"] = board.fen()
                 
-                return (1., True, info)
+                return (-1., True, info)
             elif outcome.termination == chess.Termination.CHECKMATE and outcome.winner != board.turn:
                 info["game_over"] = True
                 info["termination_reason"] = "checkmate"
                 info["winner"] = not board.turn 
                 info["fen"] = board.fen()
                 
-                return (-1., True, info)
+                return (1., True, info)
             else:
                 # Handle draws, stalemates, and other game endings
                 info["game_over"] = True

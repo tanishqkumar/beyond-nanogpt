@@ -59,12 +59,7 @@ class ChessNet(nn.Module):
         self.value_head = nn.Linear(self.hidden_dim_flat, 1) # 8 * 8 * (MT + L) -> 1, applied across batch dim 
         self.policy_head = nn.Linear(self.hidden_dim_flat, cfg.nactions)
     
-    def forward(self, board_history: List[chess.Board], nactions: int = 4672) -> Tuple[torch.Tensor, torch.Tensor]: # [b, mtl, 8, 8] -> [[b, 1], [b, nactions]]
-        if not isinstance(board_history, deque): 
-            board_history = [board_history]
-
-        x = board2input(board_history).unsqueeze(0) # add batchdim
-
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]: # [b, mtl, 8, 8] -> [[b, 1], [b, nactions]]
         h = self.first(x)
         for block in self.hidden_blocks: 
             h = block(h) # residual is handled inside block 
@@ -73,5 +68,4 @@ class ChessNet(nn.Module):
 
         values, logits = self.value_head(h_flat), self.policy_head(h_flat)
 
-        return values, legal_mask(logits, board_history[-1], nactions)
-        
+        return values, logits
