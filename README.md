@@ -113,7 +113,13 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
       - [x] Model Predictive Control (MPC) `train_mpc.py` 
       - [x] Expert Iteration (MCTS) `train_expert_iteration.py` 
       - [ ] Probabilistic Ensembles with Trajectory Sampling (PETS)
-   - [ ] Neural Chess Engine (self-play)
+   - [ ] Neural Chess Engine (self-play) `rl/chess`
+      - [x] Define the architecture and environment `model.py` and `env.py`
+      - [x] MCTS for move search `mcts.py`
+      - [x] Self-play `train.py`
+      - [x] Batching across MCTS simulations `mcts.py`
+      - [ ] Batching across self-play games 
+      - [ ] Multiprocessing self-play 
 - LLMs
    - [ ] RLHF a base model with UltraFeedback 
    - [ ] DPO a base model with UltraFeedback
