@@ -19,28 +19,20 @@ class ChessEnv:
         self._update_history()
 
     def step(self, a_idx: int) -> Tuple[chess.Board, float, bool, Dict]: 
-        # BUG somehow replacing this stuff fixed illegal move
-            # which means our representation needs to be understood deeply - bug there 
+        a_move = index2move(self.board, a_idx) 
 
-        # then after that, we can start profiling/optimizing 
+        if a_move not in self.board.legal_moves: 
+            print("🛑 IllegalStep!", 
+              " action index:", a_idx,
+              " decoded move:", a_move.uci(),
+              " board FEN:", self.board.fen(),
+              " legal moves:", [m.uci() for m in self.board.legal_moves])
+            raise Exception("Error: ChessEnv.step given an illegal move!")
 
-        # a_move = index2move(self.board, a_idx) 
-
-        # if a_move not in self.board.legal_moves: 
-        #     raise Exception("Error: ChessEnv.step given an illegal move!")
-        # convert the action-index into an actual legal move
-        legal_map = { move2index(self.board, mv): mv for mv in self.board.legal_moves }
-        a_move = legal_map.get(a_idx)
-        if a_move is None:
-            legal_inds = list(legal_map.keys())
-            raise Exception(
-                f"Illegal move index {a_idx}!  Legal indices: {legal_inds}"
-            )
         self.board.push(a_move)
         self.move_count += 1
         self._update_history()
 
-        # s_next = board2input(self.board_history)
         reward, done, info = eval_pos(self.board)
         
         # problem: we're returning a tensor when we want state to be a board in buffer 

@@ -7,7 +7,7 @@ import argparse
 from model import ChessNet
 from utils import board2input, legal_mask
 from config import TrainConfig, MCTSConfig
-from MCTS import MCTS
+from MCTS import MCTS, MCTS_batched
 from env import ChessEnv
 from buffer import Buffer
 
@@ -27,7 +27,8 @@ def self_play_game(
     if verbose: print(f'Beginning a self-play game...')
     while not done and duration < mcts_cfg.max_game_duration: 
         normalize = bool(selection_temp == 0.)
-        mcts_logits = MCTS(mcts_cfg, s, model, env, normalize=normalize) # mcts consists of [selection, expansion, simulation, backprop]
+        with torch.no_grad(), torch.amp.autocast('cuda', dtype=torch.bfloat16): 
+            mcts_logits = MCTS_batched(mcts_cfg, s, model, env, normalize=normalize) # mcts consists of [selection, expansion, simulation, backprop]
         mcts_logits = legal_mask(mcts_logits.unsqueeze(0), [env.board]).squeeze(0)
         
         if selection_temp == 0.:
@@ -45,7 +46,7 @@ def self_play_game(
         
         if duration % 10 == 0 and verbose: print(f'{duration} moves into the self play game...')
         if done: # about to exit, 
-            if verbose: print(f'Game reached termination, winner is {state.turn}, moving on...')
+            if verbose: print(f'Game reached termination, winner is {env.board.turn}, moving on...')
             for _, (state, policy, _) in enumerate(data): 
                 z = r if state.turn == env.board.turn else -r
                 buffer.push(state, z, policy) # each mcts call contributes a single example 
@@ -80,6 +81,12 @@ def train(
 
     # setup nets and optimizers
     model = ChessNet(train_cfg.model_cfg).to(device)
+    if verbose: 
+        param_count = sum(p.numel() for p in model.parameters())
+        print(f"Model has {param_count / 1e6:.2f}M parameters")
+
+    # Disable torch.compile to avoid profile module conflicts
+    # torch._dynamo.config.disable = True
     opt = torch.optim.AdamW(model.parameters(), lr=train_cfg.lr, weight_decay=train_cfg.wd)
     
     # Setup learning rate scheduler
@@ -127,7 +134,7 @@ def train(
         
         scheduler.step()
 
-        if verbose and step % 100 == 0:
+        if verbose:
             current_lr = scheduler.get_last_lr()[0]
             print(f"  Training loss: {loss.item():.6f}, LR: {current_lr:.6f}")
 
@@ -140,6 +147,8 @@ def train(
             })
 
         # TODO: once train working, compute win rate against random policy 
+        # TODO: once prof runs in ~1-2s look to multithread self play games writing to buffer in parallel 
+        # so that every ~30s we have one gradient step due to ~20 games being played 
         # if step % train_cfg.eval_every == 0: 
         #     elo = eval(model)
         #     if verbose:
@@ -151,13 +160,14 @@ def train(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train AlphaZero on Chess')
     # fix these 
-    parser.add_argument('--num-games-per-step', type=int, default=3, help='Number of rollouts per training step')
-    parser.add_argument('--num-train-steps', type=int, default=100, help='Number of training steps')
+    parser.add_argument('--num-games-per-step', type=int, default=25, help='Number of self play games per training step')
+        # this means we add at most 200 * 25 = 5_000 examples to buffer for every bsz=512 we consume 
+    parser.add_argument('--num-train-steps', type=int, default=50_000, help='Number of training steps')
     parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
-    parser.add_argument('--bsz', type=int, default=256, help='Batch size')
-    parser.add_argument('--num-mcts-sims', type=int, default=50, help='Number of MCTS simulations')
-    parser.add_argument('--buff-sz', type=int, default=10_000, help='Buffer size')
-    parser.add_argument('--max-game-duration', type=int, default=100, help='Buffer size')
+    parser.add_argument('--bsz', type=int, default=1024, help='Batch size') # bsz for updates to nets from buffer 
+    parser.add_argument('--num-mcts-sims', type=int, default=512, help='Number of MCTS simulations')
+    parser.add_argument('--buff-sz', type=int, default=100_000, help='Buffer size')
+    parser.add_argument('--max-game-duration', type=int, default=200, help='Buffer size')
     parser.add_argument('--selection-temp', type=float, default=0.7, help='Temperature for selection sampling')
     parser.add_argument('--cpuct', type=float, default=1.0, help='CPUCT parameter for MCTS')
     parser.add_argument('--noise-scale', type=float, default=0.1, help='Noise scale for MCTS root')

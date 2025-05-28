@@ -1,20 +1,28 @@
 import chess
 import torch 
-from typing import List, Optional, Tuple, Dict, Any
+from typing import List, Optional, Tuple, Dict, Any, TYPE_CHECKING
 from collections import deque
+if TYPE_CHECKING: 
+    from MCTS import Node 
 
 TYPES = [chess.PAWN, chess.ROOK, chess.KING,
             chess.QUEEN, chess.BISHOP, chess.KNIGHT]
 TYPE_TO_IDX  = {t:i for i,t in enumerate(TYPES)}
 COLOR_TO_IDX = {chess.BLACK:0, chess.WHITE:1}
+_EMPTY = chess.Board(fen=None)
+
 
 def get_empty(): 
-    return chess.Board(fen=None)
+    return _EMPTY # this is OK since these are never mutated
+
 
 def board2input(
         board_history: deque[chess.Board],
         device: torch.device = torch.device("cuda")    
     ) -> torch.Tensor: # chess.Board -> [MT+ L, 8, 8] input     
+
+    # check ideal speedup -- THIS IS STILL SLOW, SO NOT HTE BOTTLENECK
+    # return torch.zeros(119, 8, 8, dtype=torch.float32, device=device)
 
     # Convert single board to list if needed
     if isinstance(board_history, chess.Board):
@@ -73,8 +81,16 @@ def board2input(
 # moved, along one of eight relative compass directions {N,NE,E,SE,S,SW,W,NW} * len
 
 # output in 0-72 template planes 
+# Cache the template dictionary since it's expensive to compute and never changes
+_TEMPLATE_DICT_CACHE = None
+
 def get_template_dict() -> Dict[Tuple[int, int, Optional[chess.PieceType]], int]:
     """Return a dict mapping all possible (dx, dy, promo) tuples to template IDs."""
+    
+    global _TEMPLATE_DICT_CACHE
+    if _TEMPLATE_DICT_CACHE is not None:
+        return _TEMPLATE_DICT_CACHE
+    
     template_dict = {}
     
     # Queen-like moves (0-55): 8 directions × 7 distances
@@ -124,6 +140,7 @@ def get_template_dict() -> Dict[Tuple[int, int, Optional[chess.PieceType]], int]
             template_id = 64 + piece_idx * 3 + dir_idx
             template_dict[(dx, dy, piece_type)] = template_id
     
+    _TEMPLATE_DICT_CACHE = template_dict
     return template_dict
 
 # takes eg. "b5e7" -> idx 2373 out of 4672 in action idx 
@@ -153,35 +170,38 @@ def index2move(board: chess.Board, action: int) -> chess.Move:
     k, from_sq = divmod(action, 64)
 
     # use template id to see if it involves promotion
-    # is_promo = bool(k >= 64) # template ids 64 - 72 inclusive are 9 underpromotions 
     template_dct = get_template_dict()
     inv_template_dct = {v:k for k,v in template_dct.items()}
 
     dx, dy, promo = inv_template_dct[k]
     to_sq = from_sq + dx * 8 + dy
 
-    if promo is None and board.piece_type_at(from_sq) == chess.PAWN and (to_sq // 8 == 0 or to_sq // 8 == 7):
-        promo = chess.QUEEN
-
-    # invert to_sq if black
+    # invert to_sq if black, it's important this is before promo logic because board.piece_type_at
+        # assumes from_sq is the real (ie. white/black) sq not just from white's pov like board.step 
     if board.turn == chess.BLACK:
         from_sq = 63 - from_sq
         to_sq = 63 - to_sq
+
+    # this was missing a one-rank check before, leading to invalid promotions being registered
+    if promo is None and board.piece_type_at(from_sq) == chess.PAWN:
+        actual_dx = (to_sq // 8) - (from_sq // 8)
+        # must be a one-rank step and land on rank 0 or 7
+        if abs(actual_dx) == 1 and (to_sq // 8 == 0 or to_sq // 8 == 7):
+            promo = chess.QUEEN
 
     return chess.Move(from_sq, to_sq, promo)
 
 
 # takes a board to possible next moves that are legal out of [4672] moves
-def legal_mask(logits: torch.Tensor, boards: List[chess.Board], nactions: int = 4672) -> torch.Tensor: 
+def legal_mask(logits: torch.Tensor, nodes: List['Node'], nactions: int = 4672) -> torch.Tensor: 
     assert logits.dim() == 2
     b, _ = logits.shape
     device = logits.device  
     mask = torch.zeros((b, nactions), dtype=torch.bool, device=device)
     
     for i in range(b):
-        for mv in boards[i].legal_moves: 
-            idx = move2index(boards[i], mv)    
-            mask[i, idx] = True
+        indices = torch.tensor(nodes[i].legal_indices, dtype=torch.long, device=device)
+        mask[i, indices] = True
 
     return logits.masked_fill(~mask, float('-inf'))
 

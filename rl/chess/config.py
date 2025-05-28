@@ -41,7 +41,8 @@ class MCTSNodeConfig:
     
 @dataclass 
 class MCTSConfig: 
-    num_sims: int = 20 
+    num_sims: int = 512
     noise_scale: float = 0.1 
     cpuct: float = 1.0 
-    max_game_duration: int = 100 
+    max_game_duration: int = 200
+    batch_sz: int = 512

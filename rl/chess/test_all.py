@@ -4,7 +4,7 @@ Run tests from rl/chess with `pytest test_all.py -v`
 import chess 
 import torch
 from model import ChessNet 
-from utils import move2index, board2input, legal_mask
+from utils import move2index, index2move, board2input, legal_mask
 from env import ChessEnv
 from buffer import Buffer
 from MCTS import MCTS, get_root
@@ -233,3 +233,4 @@ def test_mcts_tree_growth(env: ChessEnv, net: ChessNet, nactions: int):
     
     # Either more moves explored or similar number but different distribution
     assert explored_moves_more >= explored_moves, "More simulations should not reduce exploration"
+
