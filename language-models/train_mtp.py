@@ -1,3 +1,29 @@
+'''
+(https://arxiv.org/abs/2404.19737) Better & Faster Large Language Models via Multi-token Prediction
+
+Figure 1 of this paper is one of the most beautiful figures in all of deep learning IMO, encapsulating 
+the worthy pursuit of "algorithms that scale." 
+
+Multi-token prediction is a simple algorithmic change to vanilla training, hence this file is but a small fork of 
+train_naive.py. We also make some changes to transformer.py to accomodate MTP. We basically now replace our one 
+unembedding head with NUM_TOKENS_PREDICT, which we hardcode here to be 4 since that's the number the MTP paper found
+worked best. 
+
+In standard NTP, our one unembedding head predicts p(x_{t+1}|x_{1:t}). Here, we have N heads 
+now each predicting p(x_{t+k}|x_{1:t}) for k in range(N). In principle, one could just have one head
+but make it output to a space of (N * V) but that is too memory intensive since V is already large, 
+and you'll get OOM errors. So instead we materialize logits only over V at any given time, and loop over heads. 
+
+At inference time, you can just use it like normal next token prediction but better-performing, or opt to use the heads
+for a sort of "self speculation" that speeds up inference. It's conceptually important to note this technique
+helps even if you're only doing N=1 token prediction at inference (ie. discarding many heads worth of outputs)
+as the representations the model is forced to learn (esp on generation tasks they find) are much better. 
+
+See "MTP CHANGES HERE" below to see the key changes. It's quite short, simple, and elegant!
+
+'''
+
+
 import torch, torch.nn as nn, torch.nn.functional as F
 from datasets import load_dataset
 from transformer import Transformer, TransformerConfig
