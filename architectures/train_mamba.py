@@ -276,8 +276,8 @@ def main():
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # increased for faster convergence
         scaler.step(optimizer)
+        scheduler.step()  # Call scheduler.step() after optimizer.step()
         scaler.update()
-        scheduler.step()
 
         total_loss += loss.item()
         steps += 1
@@ -286,7 +286,7 @@ def main():
         if args.wandb:
             wandb.log({'loss': loss.item(), 'lr': scheduler.get_last_lr()[0]}, step=steps)
 
-        if steps % 50 == 0:
+        if steps % 10 == 0:
             print(f"Step {steps}, Loss: {loss.item():.4f}, LR: {scheduler.get_last_lr()[0]:.2e}")
             
         if steps % 250 == 0:  # save less frequently
