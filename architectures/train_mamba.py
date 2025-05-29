@@ -181,18 +181,18 @@ def collate_chars(batch):
     texts = [item['text'] for item in batch]
     encoded = [[char_to_idx[c] for c in text if c in chars] for text in texts]
     # limit sequence length for faster training
-    encoded = [seq[:128] for seq in encoded]  # limit to 128 tokens
+    encoded = [seq[:256] for seq in encoded]  # limit to 128 tokens
     max_len = max(len(seq) for seq in encoded)
     padded = [seq + [0] * (max_len - len(seq)) for seq in encoded]
     return torch.tensor(padded)
 
 def main():
     parser = argparse.ArgumentParser(description="Train Mamba on TinyStories dataset")
-    parser.add_argument("--embed_dim", type=int, default=128, help="Embedding dimension")  # reduced from 256
-    parser.add_argument("--depth", type=int, default=2, help="Number of Mamba layers")  # reduced from 4
-    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")  # slightly higher for faster convergence
-    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")  # increased for h100
-    parser.add_argument("--num_steps", type=int, default=1000, help="Optional limit on training steps")  # fewer steps
+    parser.add_argument("--embed_dim", type=int, default=128, help="Embedding dimension") 
+    parser.add_argument("--depth", type=int, default=4, help="Number of Mamba layers") 
+    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")  
+    parser.add_argument("--batch_size", type=int, default=128, help="Batch size") 
+    parser.add_argument("--num_steps", type=int, default=1_000, help="Optional limit on training steps")  # fewer steps
     parser.add_argument("--verbose", action="store_true", help="Print additional training details")
     parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
     args = parser.parse_args()
@@ -204,7 +204,7 @@ def main():
     if args.verbose:
         print("Loading dataset...")
     # use a smaller subset of the dataset
-    dataset = load_dataset("roneneldan/TinyStories", split="train[:5%]")  # only use 5% of the data
+    dataset = load_dataset("roneneldan/TinyStories", split="train")  # only use 5% of the data
 
     if args.verbose:
         print("Creating dataloader...")
@@ -213,7 +213,6 @@ def main():
         batch_size=args.batch_size, 
         shuffle=True, 
         collate_fn=collate_chars,
-        num_workers=4  # use multiple workers for faster data loading
     )
 
     if args.verbose:
@@ -237,7 +236,7 @@ def main():
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.lr/10)
     
     # simplified lr schedule for demo
-    total_steps = min(1000, len(train_dataloader))
+    total_steps = min(1_000, len(train_dataloader))
     warmup_steps = int(0.05 * total_steps)
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer,
@@ -252,7 +251,6 @@ def main():
     total_loss = 0.0
     steps = 0
 
-    # create directory for periodic checkpoints
     os.makedirs('mamba_checkpoints', exist_ok=True)
 
     if args.verbose:
@@ -266,7 +264,7 @@ def main():
         x_with_bos = torch.cat([bos, x], dim=1)
         
         # use mixed precision for faster training
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast('cuda'):
             # x_with_bos shape: [batch_size, seq_len+1]
             logits = model(x_with_bos)  # logits shape: [batch_size, seq_len+1, vocab_size]
             targets = x_with_bos[:, 1:]  # shape: [batch_size, seq_len]
