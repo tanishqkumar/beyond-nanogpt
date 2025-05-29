@@ -17,7 +17,6 @@ class AttentionConfig:
     head_dim: int = 64
     causal: bool = True
     device: str = "cuda"
-    gqa: bool = False
 
 class Attention(torch.nn.Module): # BSD -> BSD
     def __init__(self, 
@@ -25,7 +24,6 @@ class Attention(torch.nn.Module): # BSD -> BSD
         super().__init__()
         self.D = config.D 
         self.head_dim = config.head_dim
-        self.gqa = config.gqa 
         assert self.D % self.head_dim == 0
         self.nheads = self.D//self.head_dim
         self.Wq = torch.nn.Linear(self.D, self.D)
@@ -117,7 +115,6 @@ class LN(torch.nn.Module):
 @dataclass
 class TransformerLayerConfig:
     D: int
-    gqa: bool = False
     device: Optional[torch.device] = None
 
 class TransformerLayer(torch.nn.Module): 
@@ -127,7 +124,7 @@ class TransformerLayer(torch.nn.Module):
         self.D = config.D 
         self.device = config.device if config.device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        attn_config = AttentionConfig(D=self.D, gqa=config.gqa, device=self.device)
+        attn_config = AttentionConfig(D=self.D, device=self.device)
         mlp_config = MLPConfig(D=self.D, device=self.device)
         ln_config = LNConfig(D=self.D, device=self.device)
         
@@ -211,7 +208,6 @@ class TransformerConfig:
     vocab_size: int
     max_seq_len: int = 16384
     device: Optional[torch.device] = None
-    gqa: bool = False
     mtp: bool = False
 
 class Transformer(torch.nn.Module): 
@@ -228,10 +224,9 @@ class Transformer(torch.nn.Module):
         self.emb = EmbeddingLayer(emb_config)
         self.pos_emb = PositionalEmbedding(pos_emb_config)
         self.unemb = UnembeddingLayer(unemb_config)
-        self.gqa = config.gqa 
         self.mtp = config.mtp 
         
-        layer_config = TransformerLayerConfig(D=config.hidden_dim, gqa=config.gqa, device=config.device)
+        layer_config = TransformerLayerConfig(D=config.hidden_dim, device=config.device)
         self.layers = torch.nn.ModuleList([TransformerLayer(layer_config) for _ in range(config.depth)])
         for i, layer in enumerate(self.layers):
             layer.attn.layer_idx = i  

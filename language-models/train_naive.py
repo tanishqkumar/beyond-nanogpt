@@ -63,7 +63,6 @@ if __name__ == "__main__":
         vocab_size=vocab_size,
         max_seq_len=S,
         device=device,
-        gqa=False,
         mtp=False
     )
     model = Transformer(config).to(device)
