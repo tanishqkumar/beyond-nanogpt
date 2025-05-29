@@ -67,7 +67,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 ## Current Implementations and Roadmap
 
 ### Architectures
-- [x] Vanilla causal Transformer for language modeling (starting point) `language-models/train_naive.py`
+- [x] Vanilla causal Transformer `language-models/transformer.py` and `train_naive.py`
 - [x] Vision Transformer (ViT) `architectures/train_vit.py`
 - [x] Diffusion Transformer (DiT) `architectures/train_dit.py`
 - [x] Recurrent Neural Network (RNN) `architectures/train_rnn.py` 
@@ -95,7 +95,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] KV Caching `language-models/KV_cache.ipynb` 
 - [x] Speculative Decoding `language-models/speculative_decoding.ipynb`
 - [x] RoPE embeddings `language-models/rope.ipynb`
-- [ ] Multi-token Prediction
+- [x] Multi-token Prediction `language-models/train_mtp.py` 
 
 ### Reinforcement Learning
 - Deep RL
