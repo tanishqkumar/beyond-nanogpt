@@ -142,7 +142,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [ ] Communication collectives (scatter, gather, ring/tree allreduce)
 - [ ] Distributed Data Parallel
 - [ ] Tensor Parallel
-- [ ] Ring Attention
+- [ ] Ring Attention (Context Parallel)
 - [ ] Paged Attention
 - [ ] Flash Attention in Triton 
 
