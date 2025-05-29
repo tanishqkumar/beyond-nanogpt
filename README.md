@@ -140,8 +140,8 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 
 ### MLSys 
 - [ ] Communication collectives (scatter, gather, ring/tree allreduce)
-- [ ] Minimal FSDP re-implementation (data and tensor parallelism)
-- [ ] GPipe (pipeline parallelism)
+- [ ] Distributed Data Parallel
+- [ ] Tensor Parallel
 - [ ] Ring Attention
 - [ ] Paged Attention
 - [ ] Flash Attention in Triton 
