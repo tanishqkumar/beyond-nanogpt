@@ -1,6 +1,6 @@
 import torch 
 from datasets import load_dataset
-from transformer import Transformer 
+from transformer import Transformer, TransformerConfig
 from tqdm import tqdm 
 from transformers import GPT2Tokenizer
 import argparse
@@ -55,7 +55,18 @@ if __name__ == "__main__":
     
     if args.verbose:
         print(f'Initializing model with {nlayers} layers, hidden dim {D}, vocab size {vocab_size}...')
-    model = Transformer(nlayers, D, vocab_size).to('cuda')
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    config = TransformerConfig(
+        depth=nlayers,
+        hidden_dim=D,
+        vocab_size=vocab_size,
+        max_seq_len=S,
+        device=device,
+        gqa=False,
+        mtp=False
+    )
+    model = Transformer(config).to(device)
 
     if args.compile: 
         print(f'Running torch.compile...')

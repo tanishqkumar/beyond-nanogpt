@@ -1,5 +1,6 @@
 import torch 
-from typing import List, Dict, Optional, Tuple 
+from typing import List, Dict, Optional, Tuple, Union, Any
+from dataclasses import dataclass
 
 # helper 
 ACT2FN = {
@@ -9,23 +10,33 @@ ACT2FN = {
     'swish': torch.nn.functional.silu,
 }
 
-class Attention(torch.nn.Module): # BSD -> BSD
-    def __init__(self, D=768, layer_idx=None, head_dim=64, causal=True, device="cuda", gqa=False): 
-        super().__init__()
-        self.D = D 
-        self.head_dim = head_dim
-        self.gqa = gqa 
-        assert D % head_dim == 0
-        self.nheads = D//head_dim
-        self.Wq = torch.nn.Linear(D, D)
-        self.Wk = torch.nn.Linear(D, D)
-        self.Wv = torch.nn.Linear(D, D)
-        self.causal = causal 
-        self.Wo = torch.nn.Linear(D, D)
-        self.device = device
-        self.layer_idx = layer_idx
+@dataclass
+class AttentionConfig:
+    D: int = 768
+    layer_idx: Optional[int] = None
+    head_dim: int = 64
+    causal: bool = True
+    device: str = "cuda"
+    gqa: bool = False
 
-    def forward(self, x: torch.Tensor, kv_cache): # input is [B, S, D] 
+class Attention(torch.nn.Module): # BSD -> BSD
+    def __init__(self, 
+                 config: AttentionConfig): 
+        super().__init__()
+        self.D = config.D 
+        self.head_dim = config.head_dim
+        self.gqa = config.gqa 
+        assert self.D % self.head_dim == 0
+        self.nheads = self.D//self.head_dim
+        self.Wq = torch.nn.Linear(self.D, self.D)
+        self.Wk = torch.nn.Linear(self.D, self.D)
+        self.Wv = torch.nn.Linear(self.D, self.D)
+        self.causal = config.causal 
+        self.Wo = torch.nn.Linear(self.D, self.D)
+        self.device = config.device
+        self.layer_idx = config.layer_idx
+
+    def forward(self, x: torch.Tensor, kv_cache: Optional[Any] = None) -> torch.Tensor: # input is [B, S, D] 
         B, S, D = x.shape
         # this multi-head now, ie. make each QKV [B, S, D] --> [B, nh, S, hd]
 
@@ -60,45 +71,72 @@ class Attention(torch.nn.Module): # BSD -> BSD
         out = self.Wo(preout) # [B, S, D]
         return out # [B, S, D]
 
+@dataclass
+class MLPConfig:
+    D: int
+    hidden_multiplier: int = 4
+    act: str = 'swish'
+    device: Optional[torch.device] = None
+
 # most important fact about MLP: it operates on each token independently, ie. D --> D
 class MLP(torch.nn.Module): 
-    def __init__(self, D, hidden_multiplier=4, act='swish', device=None): 
+    def __init__(self, 
+                 config: MLPConfig): 
         super().__init__()
-        self.D = D
-        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.up_proj = torch.nn.Linear(D, D*hidden_multiplier)
-        self.down_proj = torch.nn.Linear(D*hidden_multiplier, D)
-        self.act = ACT2FN[act]
+        self.D = config.D
+        self.device = config.device if config.device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.up_proj = torch.nn.Linear(self.D, self.D*config.hidden_multiplier)
+        self.down_proj = torch.nn.Linear(self.D*config.hidden_multiplier, self.D)
+        self.act = ACT2FN[config.act]
 
-    def forward(self, x): # BSD -> BSD automatically on last dim 
+    def forward(self, x: torch.Tensor) -> torch.Tensor: # BSD -> BSD automatically on last dim 
         return self.down_proj(self.act(self.up_proj(x)))
 
-class LN(torch.nn.Module): 
-    def __init__(self, D, eps=1e-9, device=None): 
-        super().__init__()
-        self.D = D 
-        self.eps = eps
-        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.mean_scale = torch.nn.Parameter(torch.zeros(D))
-        self.std_scale = torch.nn.Parameter(torch.ones(D))
+@dataclass
+class LNConfig:
+    D: int
+    eps: float = 1e-9
+    device: Optional[torch.device] = None
 
-    def forward(self, x): # x is [B, S, D]
+class LN(torch.nn.Module): 
+    def __init__(self, 
+                 config: LNConfig): 
+        super().__init__()
+        self.D = config.D 
+        self.eps = config.eps
+        self.device = config.device if config.device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.mean_scale = torch.nn.Parameter(torch.zeros(self.D))
+        self.std_scale = torch.nn.Parameter(torch.ones(self.D))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor: # x is [B, S, D]
         mean = x.mean(dim=-1, keepdim=True) # [B, S, 1]
         std = (x.var(dim=-1, keepdim=True) + self.eps)**0.5 # [B, S, 1]
         x_norm = (x - mean)/(std) 
         return x_norm * self.std_scale + self.mean_scale
 
+@dataclass
+class TransformerLayerConfig:
+    D: int
+    gqa: bool = False
+    device: Optional[torch.device] = None
+
 class TransformerLayer(torch.nn.Module): 
-    def __init__(self, D, gqa=False, device=None): 
+    def __init__(self, 
+                 config: TransformerLayerConfig): 
         super().__init__()
-        self.D = D 
-        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.attn = Attention(D, gqa=gqa, device=self.device)
-        self.mlp = MLP(D, device=self.device)
-        self.ln1 = LN(D, device=self.device)
-        self.ln2 = LN(D, device=self.device)  
+        self.D = config.D 
+        self.device = config.device if config.device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        attn_config = AttentionConfig(D=self.D, gqa=config.gqa, device=self.device)
+        mlp_config = MLPConfig(D=self.D, device=self.device)
+        ln_config = LNConfig(D=self.D, device=self.device)
+        
+        self.attn = Attention(attn_config)
+        self.mlp = MLP(mlp_config)
+        self.ln1 = LN(ln_config)
+        self.ln2 = LN(ln_config)  
     
-    def forward(self, x, kv_cache=None): # x is BSD
+    def forward(self, x: torch.Tensor, kv_cache: Optional[Any] = None) -> torch.Tensor: # x is BSD
         ln1_out = self.ln1(x)
         attn_out = self.attn(ln1_out, kv_cache=kv_cache)
         x = x + attn_out
@@ -107,53 +145,99 @@ class TransformerLayer(torch.nn.Module):
         x = x + mlp_out
         return x 
 
+@dataclass
+class PositionalEmbeddingConfig:
+    max_seq_len: int
+    D: int
+    device: Optional[torch.device] = None
+
 # simple pos_embeddings, leave RoPE etc to future implementation
 class PositionalEmbedding(torch.nn.Module):
-    def __init__(self, max_seq_len, D, device=None):
+    def __init__(self, 
+                 config: PositionalEmbeddingConfig):
         super().__init__()
-        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.pos_embedding = torch.nn.Parameter(torch.randn(max_seq_len, D))
+        self.device = config.device if config.device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.pos_embedding = torch.nn.Parameter(torch.randn(config.max_seq_len, config.D))
     
-    def forward(self, x): # x is [B, S, D]
+    def forward(self, x: torch.Tensor) -> torch.Tensor: # x is [B, S, D]
         B, S, D = x.shape
         return x + self.pos_embedding[:S] # Broadcasting handles batch dimension
 
+@dataclass
+class EmbeddingLayerConfig:
+    vocab_size: int
+    D: int
+    device: Optional[torch.device] = None
+
 class EmbeddingLayer(torch.nn.Module): 
     # this is just a lookup table, gradients flow only to the entry we found in the lookup, not the same as matmul 
-    def __init__(self, vocab_size, D, device=None): 
+    def __init__(self, 
+                 config: EmbeddingLayerConfig): 
         super().__init__()
-        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.embedding = torch.nn.Parameter(torch.randn(vocab_size, D))
+        self.device = config.device if config.device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.embedding = torch.nn.Parameter(torch.randn(config.vocab_size, config.D))
 
-    def forward(self, x): 
+    def forward(self, x: torch.Tensor) -> torch.Tensor: 
         return self.embedding[x]
+
+@dataclass
+class UnembeddingLayerConfig:
+    vocab_size: int
+    D: int
+    device: Optional[torch.device] = None
+    mtp: bool = False
 
 class UnembeddingLayer(torch.nn.Module): 
     # similar to above, this is just a lookup table that maps embeddings back to logits
-    def __init__(self, vocab_size, D, device=None): 
+    def __init__(self, 
+                 config: UnembeddingLayerConfig): 
         super().__init__()
-        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.unembedding = torch.nn.Linear(D, vocab_size)
+        self.device = config.device if config.device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.mtp = config.mtp
+        self.V = config.vocab_size
+        self.unembedding = torch.nn.Linear(config.D, self.V if not config.mtp else self.V * 4) # MTP = 4 token prediction
 
-    def forward(self, x): # x is [B, S, D]
-        # Return logits of shape [B, S, vocab_size]
-        return self.unembedding(x)
+    def forward(self, x: torch.Tensor) -> torch.Tensor: # x is [B, S, D]
+        if self.mtp: # predict 4 tokens in advance, so project up to BS(4V) and reshape to reutrn [B, S, 4, V]
+            B, S, _ = x.shape
+            return self.unembedding(x).reshape(B, S, 4, self.V)
+        else: # Return logits of shape [B, S, vocab_size]
+            return self.unembedding(x)
+
+@dataclass
+class TransformerConfig:
+    depth: int
+    hidden_dim: int
+    vocab_size: int
+    max_seq_len: int = 16384
+    device: Optional[torch.device] = None
+    gqa: bool = False
+    mtp: bool = False
 
 class Transformer(torch.nn.Module): 
-    def __init__(self, depth, hidden_dim, vocab_size, max_seq_len=16384, device=None, gqa=False): 
+    def __init__(self, 
+                 config: TransformerConfig): 
         super().__init__()
-        self.depth = depth
-        self.hidden_dim = hidden_dim
-        self.emb = EmbeddingLayer(vocab_size, hidden_dim, device=device)
-        self.pos_emb = PositionalEmbedding(max_seq_len, hidden_dim, device=device)
-        self.unemb = UnembeddingLayer(vocab_size, hidden_dim, device=device)
-        self.gqa = gqa 
-        self.layers = torch.nn.ModuleList([TransformerLayer(hidden_dim, gqa, device=device) for _ in range(depth)])
+        self.depth = config.depth
+        self.hidden_dim = config.hidden_dim
+        
+        emb_config = EmbeddingLayerConfig(vocab_size=config.vocab_size, D=config.hidden_dim, device=config.device)
+        pos_emb_config = PositionalEmbeddingConfig(max_seq_len=config.max_seq_len, D=config.hidden_dim, device=config.device)
+        unemb_config = UnembeddingLayerConfig(vocab_size=config.vocab_size, D=config.hidden_dim, mtp=config.mtp, device=config.device)
+        
+        self.emb = EmbeddingLayer(emb_config)
+        self.pos_emb = PositionalEmbedding(pos_emb_config)
+        self.unemb = UnembeddingLayer(unemb_config)
+        self.gqa = config.gqa 
+        self.mtp = config.mtp 
+        
+        layer_config = TransformerLayerConfig(D=config.hidden_dim, gqa=config.gqa, device=config.device)
+        self.layers = torch.nn.ModuleList([TransformerLayer(layer_config) for _ in range(config.depth)])
         for i, layer in enumerate(self.layers):
             layer.attn.layer_idx = i  
-        self.device = device
+        self.device = config.device
 
-    def forward(self, x, kv_cache=None):
+    def forward(self, x: torch.Tensor, kv_cache: Optional[Any] = None) -> torch.Tensor:
         x = self.emb(x)
         if kv_cache is not None:
             # When decoding, only add positional embeddings for the new tokens.
