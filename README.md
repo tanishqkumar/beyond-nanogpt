@@ -11,7 +11,9 @@ This repo includes annotated and from-scratch implementations of almost 100 cruc
 
 The repo implements everything from KV caching and speculative decoding for LLMs to 
 architectures like vision transformers and MLP-mixers; from attention variants like linear or multi-latent attention to generative models like denoising diffusion models and flow matching algorithms; from landmark RL papers like PPO, A3C, and AlphaZero to 
-systems fundamentals like GPU communication algorithms and data/tensor parallelism. **Because everything is implemented by-hand, the code comments explain the especially subtle details often glossed over both in papers and production codebases.**
+systems fundamentals like GPU communication algorithms and data/tensor parallelism. 
+
+**Because everything is implemented by-hand, the code comments explain the especially subtle details often glossed over both in papers and production codebases.**
 
 <p align="center">
   <span style="display: inline-block; text-align: center; margin: 0 10px;">
@@ -144,7 +146,7 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 - [ ] Paged Attention
 - [ ] Flash Attention in Triton 
 
-[Coming Soon]: RAG, Agents, Multimodality, Robotics. 
+[Coming Soon]: RAG, Agents, Multimodality, Robotics, Evals. 
 
 ---
 
