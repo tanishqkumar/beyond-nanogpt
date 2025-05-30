@@ -10,10 +10,8 @@
 This repo includes annotated and from-scratch implementations of almost 100 crucial modern techniques in frontier deep learning, aiming to help newcomers learn enough to start running experiments of their own. 
 
 The repo implements everything from KV caching and speculative decoding for LLMs to 
-architectures like vision transformers and MLP-mixers to attention variants like linear or grouped-query attention
-to generative models like VAEs and denoising diffusion models.  **Because everything is implemented by-hand, the code comments explain the especially subtle details often glossed over both in papers and production codebases.**
-
-`LESSONS.md` documents some of the things I've learned in the months spent writing this codebase. 
+architectures like vision transformers and MLP-mixers, from attention variants like linear or multi-latent attention to generative models like denoising diffusion models and flow matching algorithms from landmark RL papers like PPO, A3C, and AlphaZero to 
+ML systems fundamentals like ring/tree allreduce and data parallelism. **Because everything is implemented by-hand, the code comments explain the especially subtle details often glossed over both in papers and production codebases.**
 
 <p align="center">
   <span style="display: inline-block; text-align: center; margin: 0 10px;">
@@ -33,6 +31,8 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
     </div>
   </span>
 </p>
+
+`LESSONS.md` documents some of the things I've learned in the months spent writing this codebase. 
 
 ## Quickstart
 1. **Clone the Repo:**
@@ -113,13 +113,11 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
       - [x] Model Predictive Control (MPC) `train_mpc.py` 
       - [x] Expert Iteration (MCTS) `train_expert_iteration.py` 
       - [ ] Probabilistic Ensembles with Trajectory Sampling (PETS)
-   - [ ] Neural Chess Engine (self-play) `rl/chess`
+   - [ ] Neural Chess Engine (AlphaZero) `rl/chess`
       - [x] Define the architecture and environment `model.py` and `env.py`
       - [x] MCTS for move search `mcts.py`
       - [x] Self-play `train.py`
-      - [x] Batching across MCTS simulations `mcts.py`
-      - [ ] Batching across self-play games 
-      - [ ] Multiprocessing self-play 
+      - [ ] Dynamic batching and multiprocessing `mcts.py`
 - LLMs
    - [ ] RLHF a base model with UltraFeedback 
    - [ ] DPO a base model with UltraFeedback
@@ -139,7 +137,7 @@ to generative models like VAEs and denoising diffusion models.  **Because everyt
 - [x] Flow matching `generative-models/train_flow_matching.py`
 
 ### MLSys 
-- [ ] Communication collectives (scatter, gather, ring/tree allreduce)
+- [ ] GPU Communication Algorithms (scatter, gather, ring/tree allreduce)
 - [ ] Distributed Data Parallel
 - [ ] Tensor Parallel
 - [ ] Ring Attention (Context Parallel)
