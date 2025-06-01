@@ -11,6 +11,9 @@ a fundamental primitive that applies an operator across the chunked data stored 
 (e.g. operator = SUM or MULT), reducing the entire state to one tensor, and then broadcasting that 
 result back to all processes.
 
+Here, we reimplement some of the most important primitives using nothing more than dist.send and 
+dist.recv, which send/receive tensors between two GPUs. 
+
 Some notes on gotchas/things to know before about how the torch.dist API works:
     - Process group lifecycle: Each process inits/destroys its process group because it's a local 
       connection. If we're in an allreduce and waiting on process N and it has called 
@@ -58,7 +61,6 @@ def test_send(
         msg: str,
         device: torch.device = 'cuda'
     ): 
-    s = torch.tensor([0])  
 
     # send from src to dest 
     if rank == src: 
@@ -68,7 +70,6 @@ def test_send(
         # receive and convert back to string
         msg_t = torch.zeros(len(msg), dtype=torch.int64, device=device)
         dist.recv(msg_t, src)
-        s = ''.join([chr(int(x)) for x in msg_t])
 
 
 def scatter(
