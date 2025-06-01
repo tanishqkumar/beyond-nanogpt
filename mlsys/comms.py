@@ -70,8 +70,6 @@ def test_send(
         dist.recv(msg_t, src)
         s = ''.join([chr(int(x)) for x in msg_t])
 
-    print(f'[TEST SEND] In rank {rank}, my local string is {s}.')
-
 
 def scatter(
     src: int, 
@@ -96,7 +94,6 @@ def scatter(
         dist.recv(store_t, src)
     
     dist.barrier() # torch.dist comm collective wait at end automatically 
-    print(f'[SCATTER] In rank {rank}, stored tensor sums to {store_t.sum():.2f}')
         
 
 def gather(
@@ -120,8 +117,6 @@ def gather(
             else: # recv 
                 dist.recv(out[sender], sender)
 
-        # we're on dest_rank 
-        print(f'[GATHER] In dest_rank rank {dest_rank}, result sums to {out.sum()}!')
     
     dist.barrier()
     
@@ -142,7 +137,6 @@ def broadcast(
         dist.recv(local_tensor, src)
     
     dist.barrier()
-    print(f'[BROADCAST] In rank {rank}, local tensor sum is {local_tensor.sum()}')
 
 
 # reduce all tensors to a scalar on dest, op=SUM by default
@@ -166,8 +160,6 @@ def naive_reduce(
         dist.send(local_tensor, dest)
 
     dist.barrier()
-    if rank == dest: 
-        print(f'[REDUCE] In rank {rank}, got reduced out = {out}')
 
 # takes a single tensor from each process, every process should have 
     # caller expects the gathered [world_size, *local_tensor.shape] to be written to local_out
@@ -196,9 +188,6 @@ def allgather(
     broadcast(gather_root, rank, world_size, local_out) # local_out populated for all processes 
     
     dist.barrier()
-    # should be sum(100 * i for i in range(world_size)) and same across all ranks
-    expected_out = sum(100 * i for i in range(world_size))
-    print(f'[ALLGATHER] In rank {rank}, sum is {local_out.sum()}, expected {expected_out}') 
     
 
 # takes in local objects (eg. grads) from each device, aggregates using a reduce op (eg. take mean of grads) to get a single tensor
@@ -233,9 +222,6 @@ def naive_allreduce(
     broadcast(root, rank, world_size, local_out)
     
     dist.barrier()
-    if rank == root: 
-        expected_out = collate_tensor.mean()
-        print(f'[NAIVE ALLREDUCE] In rank {rank}, got output {local_out.mean()}, expected {expected_out:.1f}')
 
 # we no longer need a collate tensor since we don't materialize the gathered local_tensors at any point 
 # this alg is mathematically equiv to naive, just a faster algorithm -- most often used in production 
@@ -287,7 +273,6 @@ def ring_allreduce(
 
     local_tensor = local_tensor.reshape(nrows, ncols)
     dist.barrier()
-    print(f'[RING-ALLREDUCE] Sum in rank {rank} is {local_tensor.sum()}!')
 
 # parent i -> [2i+1, 2i+2] children implicitly defines the tree (0-indexed)
 def tree_allreduce(
@@ -341,11 +326,9 @@ def tree_allreduce(
         dist.send(local_tensor, get_right_idx(rank, world_size))
 
     dist.barrier()
-    print(f'[TREE ALLREDUCE] In rank {rank}, got local tensor sum {local_tensor.sum()}')
 
 
-def test_point_to_point(rank, world_size, device):
-    """Test send/recv point to point primitives"""
+def test_point_to_point(rank: int, world_size: int, device: torch.device):
     try:
         TEST_FROM, TEST_TO = 0, min(2, world_size - 1)
         test_send(rank, TEST_FROM, TEST_TO, "Sending data between GPUs is working! w00t")
@@ -356,8 +339,7 @@ def test_point_to_point(rank, world_size, device):
         print(f'[RANK {rank}] TEST FAILED: Point-to-point communication - {e}')
         return False
 
-def test_scatter_primitive(rank, world_size, device):
-    """Test scatter primitive"""
+def test_scatter_primitive(rank: int, world_size: int, device: torch.device):
     try:
         data_shape = (12, 12)
         data = [torch.ones(*data_shape) * i for i in range(world_size)]
@@ -369,8 +351,7 @@ def test_scatter_primitive(rank, world_size, device):
         print(f'[RANK {rank}] TEST FAILED: Scatter - {e}')
         return False
 
-def test_gather_primitive(rank, world_size, device):
-    """Test gather primitive"""
+def test_gather_primitive(rank: int, world_size: int, device: torch.device):
     try:
         data_shape = (12, 12)
         GATHER_DEST = 0
@@ -380,7 +361,7 @@ def test_gather_primitive(rank, world_size, device):
             out = torch.empty((world_size, *data_shape), dtype=torch.float32, device=device)
         gather(GATHER_DEST, out, local_data, rank, world_size)
         
-        # Verify result on destination rank
+        # verify result on destination rank
         if rank == GATHER_DEST:
             expected_sum = sum(i * data_shape[0] * data_shape[1] for i in range(world_size))
             actual_sum = out.sum().item()
@@ -392,16 +373,15 @@ def test_gather_primitive(rank, world_size, device):
         print(f'[RANK {rank}] TEST FAILED: Gather - {e}')
         return False
 
-def test_broadcast_primitive(rank, world_size, device):
-    """Test broadcast primitive"""
+def test_broadcast_primitive(rank: int, world_size: int, device: torch.device):
     try:
         data_shape = (12, 12)
         BROADCAST_SRC = min(2, world_size - 1)
         local_data = torch.ones(data_shape, dtype=torch.float32, device=device) * int(rank == BROADCAST_SRC)
         broadcast(BROADCAST_SRC, rank, world_size, local_data)
         
-        # Verify all ranks have the same data
-        expected_sum = data_shape[0] * data_shape[1]  # Should be 144 on all ranks
+        # verify all ranks have the same data
+        expected_sum = data_shape[0] * data_shape[1]  # should be 144 on all ranks
         actual_sum = local_data.sum().item()
         assert abs(actual_sum - expected_sum) < 1e-6, f"Expected {expected_sum}, got {actual_sum}"
         
@@ -411,8 +391,7 @@ def test_broadcast_primitive(rank, world_size, device):
         print(f'[RANK {rank}] TEST FAILED: Broadcast - {e}')
         return False
 
-def test_reduce_primitive(rank, world_size, device):
-    """Test reduce primitive"""
+def test_reduce_primitive(rank: int, world_size: int, device: torch.device):
     try:
         data_shape = (12, 12)
         REDUCE_DEST = 0
@@ -424,15 +403,14 @@ def test_reduce_primitive(rank, world_size, device):
         print(f'[RANK {rank}] TEST FAILED: Reduce - {e}')
         return False
 
-def test_allgather_primitive(rank, world_size, device):
-    """Test allgather primitive"""
+def test_allgather_primitive(rank: int, world_size: int, device: torch.device):
     try:
         data_shape = (12, 12)
         local_out = torch.empty((world_size, *data_shape), dtype=torch.float32, device=device)
         local_tensor = torch.ones(data_shape, dtype=torch.float32, device=device) * rank
         allgather(local_out, local_tensor, rank, world_size)
         
-        # Verify result
+        # verify result
         expected_sum = sum(i * data_shape[0] * data_shape[1] for i in range(world_size))
         actual_sum = local_out.sum().item()
         assert abs(actual_sum - expected_sum) < 1e-6, f"Expected {expected_sum}, got {actual_sum}"
@@ -443,8 +421,7 @@ def test_allgather_primitive(rank, world_size, device):
         print(f'[RANK {rank}] TEST FAILED: Allgather - {e}')
         return False
 
-def test_naive_allreduce_primitive(rank, world_size, device):
-    """Test naive allreduce primitive"""
+def test_naive_allreduce_primitive(rank: int, world_size: int, device: torch.device):
     try:
         data_shape = (12, 12)
         REDUCE_ROOT = 0
@@ -455,7 +432,7 @@ def test_naive_allreduce_primitive(rank, world_size, device):
             collate_tensor = torch.empty((world_size, *data_shape), dtype=torch.float32, device=device)
         naive_allreduce(local_tensor, collate_tensor, local_out, rank, world_size, REDUCE_ROOT)
         
-        # Verify result - should be mean of all ranks
+        # verify result - should be mean of all ranks
         expected_mean = sum(range(world_size)) / world_size
         expected_sum = expected_mean * data_shape[0] * data_shape[1]
         actual_sum = local_out.sum().item()
@@ -467,8 +444,7 @@ def test_naive_allreduce_primitive(rank, world_size, device):
         print(f'[RANK {rank}] TEST FAILED: Naive allreduce - {e}')
         return False
 
-def test_ring_allreduce_primitive(rank, world_size, device):
-    """Test ring allreduce primitive"""
+def test_ring_allreduce_primitive(rank: int, world_size: int, device: torch.device):
     try:
         data_shape = (12, 12)
         local_tensor = torch.ones(data_shape, dtype=torch.float32, device=device) * rank
@@ -476,7 +452,7 @@ def test_ring_allreduce_primitive(rank, world_size, device):
         print(f'In rank {rank}, sum of local_tensor is {original_sum}')
         ring_allreduce(local_tensor, rank, world_size)
         
-        # Verify result - should be sum of all ranks across all elements
+        # verify result - should be sum of all ranks across all elements
         expected_total = sum(range(world_size)) * data_shape[0] * data_shape[1]
         actual_sum = local_tensor.sum().item()
         assert abs(actual_sum - expected_total) < 1e-6, f"Expected {expected_total}, got {actual_sum}"
@@ -487,14 +463,13 @@ def test_ring_allreduce_primitive(rank, world_size, device):
         print(f'[RANK {rank}] TEST FAILED: Ring allreduce - {e}')
         return False
 
-def test_tree_allreduce_primitive(rank, world_size, device):
-    """Test tree allreduce primitive"""
+def test_tree_allreduce_primitive(rank: int, world_size: int, device: torch.device):
     try:
         data_shape = (12, 12)
         local_tensor = torch.ones(data_shape, dtype=torch.float32, device=device) * rank
         tree_allreduce(local_tensor, rank, world_size)
         
-        # Verify result - should be sum of all ranks across all elements
+        # verify result - should be sum of all ranks across all elements
         expected_total = sum(range(world_size)) * data_shape[0] * data_shape[1]
         actual_sum = local_tensor.sum().item()
         assert abs(actual_sum - expected_total) < 1e-6, f"Expected {expected_total}, got {actual_sum}"
@@ -511,7 +486,7 @@ if __name__ == "__main__":
 
     print(f'In rank {rank}, world size is {world_size}..')
     
-    # Run all tests
+    # run all tests
     tests = [
         test_point_to_point,
         test_scatter_primitive,
