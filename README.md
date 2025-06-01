@@ -103,7 +103,7 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 - Deep RL
    - Fundamentals `rl/fundamentals`
       - [x] DQN `train_dqn.py` [[paper]](https://arxiv.org/abs/1312.5602)
-      - [x] REINFORCE `train_reinforce.py` [[paper]](https://dl.acm.org/doi/10.1007/3-540-48131-4_9)
+      - [x] REINFORCE `train_reinforce.py` [[paper]](https://link.springer.com/article/10.1007/BF00992696)
       - [x] PPO `train_ppo.py` [[paper]](https://arxiv.org/abs/1707.06347)
    - Actor-Critic and Key Variants `rl/actor-critic`
       - [x] Advantage Actor-Critic (A2C) `train_a2c.py` [[paper]](https://arxiv.org/abs/1602.01783)
