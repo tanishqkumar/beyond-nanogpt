@@ -75,14 +75,14 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 - [x] Recurrent Neural Network (RNN) `architectures/train_rnn.py` [[paper]](https://arxiv.org/abs/1506.00019)
 - [x] Residual Networks (ResNet) `architectures/train_resnet.py` [[paper]](https://arxiv.org/abs/1512.03385)
 - [x] MLP-Mixer `architectures/train_mlp_mixer.py` [[paper]](https://arxiv.org/abs/2105.01601)
-- [x] LSTM `architectures/train_lstm.py` [[paper]](https://arxiv.org/abs/1503.04069)
+- [x] LSTM `architectures/train_lstm.py` [[paper]](https://www.bioinf.jku.at/publications/older/2604.pdf)
 - [x] Mixture-of-Experts (MoE) `architectures/train_moe.py` [[paper]](https://arxiv.org/abs/2101.03961)
-- [x] Mamba `architectures/train_mamba.py`
+- [x] Mamba `architectures/train_mamba.py` [[paper]](https://arxiv.org/abs/2312.00752)
 
 ### Attention Variants
 - [x] Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` [[paper]](https://arxiv.org/abs/1706.03762)
 - [x] Multi-head Self-Attention `attention-variants/mhsa.ipynb` [[paper]](https://arxiv.org/abs/1706.03762)
-- [x] Grouped-Query Attention `attention-variants/gqa.ipynb`
+- [x] Grouped-Query Attention `attention-variants/gqa.ipynb` [[paper]](https://arxiv.org/abs/2305.13245)
 - [x] Linear Attention `attention-variants/linear_attention.ipynb` [[paper]](https://arxiv.org/abs/2006.16236)
 - [x] Sparse Attention `attention-variants/sparse_attention.ipynb` [[paper]](https://arxiv.org/abs/1904.10509)
 - [x] Cross Attention `attention-variants/cross_attention.ipynb` [[paper]](https://arxiv.org/abs/1706.03762)
@@ -90,12 +90,12 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 
 ### Language Models
 
-- [x] Optimized Dataloading `language-models/dataloaders` 
+- [x] Optimized Dataloading `language-models/dataloaders` [[reference]](https://gist.github.com/ZijiaLewisLu/eabdca955110833c0ce984d34eb7ff39)
    - [x] Producer-consumer asynchronous dataloading 
    - [x] Sequence packing 
 - [x] Byte-Pair Encoding `language-models/bpe.ipynb` [[paper]](https://arxiv.org/abs/1508.07909)
-- [x] KV Caching `language-models/KV_cache.ipynb`
-- [x] Speculative Decoding `language-models/speculative_decoding.ipynb`
+- [x] KV Caching `language-models/KV_cache.ipynb` [[reference]](https://huggingface.co/blog/not-lain/kv-caching)
+- [x] Speculative Decoding `language-models/speculative_decoding.ipynb` [[paper]](https://arxiv.org/abs/2211.17192)
 - [x] RoPE embeddings `language-models/rope.ipynb` [[paper]](https://arxiv.org/abs/2104.09864)
 - [x] Multi-token Prediction `language-models/train_mtp.py` [[paper]](https://arxiv.org/abs/2404.19737)
 
@@ -112,10 +112,10 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
       - [x] Deep Deterministic Policy Gradient (DDPG) `train_ddpg.py` [[paper]](https://arxiv.org/abs/1509.02971)
       - [x] Soft Actor-Critic (SAC) `train_sac.py` [[paper]](https://arxiv.org/abs/1801.01290)
    - Model-based RL  `rl/model-based`
-      - [x] Model Predictive Control (MPC) `train_mpc.py`
-      - [x] Expert Iteration (MCTS) `train_expert_iteration.py` [[paper]](https://arxiv.org/abs/1703.10024)
+      - [x] Model Predictive Control (MPC) `train_mpc.py`[[reference]](https://en.wikipedia.org/wiki/Model_predictive_control)
+      - [x] Expert Iteration (MCTS) `train_expert_iteration.py` [[paper]](https://arxiv.org/abs/1705.08439)
       - [ ] Probabilistic Ensembles with Trajectory Sampling (PETS)
-   - [ ] Neural Chess Engine (AlphaZero) `rl/chess`
+   - [ ] Neural Chess Engine (AlphaZero) `rl/chess` [[paper]](https://arxiv.org/abs/1712.01815)
       - [x] Define the architecture and environment `model.py` and `env.py`
       - [x] MCTS for move search `mcts.py`
       - [x] Self-play `train.py`
