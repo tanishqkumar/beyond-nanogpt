@@ -247,7 +247,8 @@ def ring_allreduce(
         temp = torch.empty_like(local_tensor[from_idx])
         left_idx, right_idx = (rank - 1) % world_size, (rank + 1) % world_size
         
-        # Need to handle send/recv order to avoid deadlock
+        # Need to handle send/recv order to avoid deadlock, since recv() blocks until someone sends
+            # this is important -- make sure you understand this "if rank % 2 == 0" line!
         if rank % 2 == 0:
             dist.send(local_tensor[to_idx], right_idx)
             dist.recv(temp, left_idx)
@@ -262,9 +263,6 @@ def ring_allreduce(
         from_idx, to_idx = (rank - s) % world_size, (rank - s + 1) % world_size
         left_idx, right_idx = (rank - 1) % world_size, (rank + 1) % world_size
         
-        # Need to handle send/recv order to avoid deadlock 
-            # this implies convergence is bounded 
-
         if rank % 2 == 0:
             dist.send(local_tensor[to_idx], right_idx)
             dist.recv(local_tensor[from_idx], left_idx)
