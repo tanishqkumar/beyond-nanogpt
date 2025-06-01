@@ -70,23 +70,23 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 
 ### Architectures
 - [x] Vanilla causal Transformer `language-models/transformer.py` and `train_naive.py`
-- [x] Vision Transformer (ViT) `architectures/train_vit.py`
-- [x] Diffusion Transformer (DiT) `architectures/train_dit.py`
+- [x] Vision Transformer (ViT) `architectures/train_vit.py` [[paper]](https://arxiv.org/abs/2010.11929)
+- [x] Diffusion Transformer (DiT) `architectures/train_dit.py` [[paper]](https://arxiv.org/abs/2212.09748)
 - [x] Recurrent Neural Network (RNN) `architectures/train_rnn.py` 
-- [x] Residual Networks (ResNet) `architectures/train_resnet.py`
-- [x] MLP-Mixer `architectures/train_mlp_mixer.py`
+- [x] Residual Networks (ResNet) `architectures/train_resnet.py` [[paper]](https://arxiv.org/abs/1512.03385)
+- [x] MLP-Mixer `architectures/train_mlp_mixer.py` [[paper]](https://arxiv.org/abs/2105.01601)
 - [x] LSTM `architectures/train_lstm.py` 
-- [x] Mixture-of-Experts (MoE) `architectures/train_moe.py` 
+- [x] Mixture-of-Experts (MoE) `architectures/train_moe.py` [[paper]](https://arxiv.org/abs/2101.03961)
 - [x] Mamba `architectures/train_mamba.py`
 
 ### Attention Variants
 - [x] Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` 
 - [x] Multi-head Self-Attention `attention-variants/mhsa.ipynb` 
 - [x] Grouped-Query Attention `attention-variants/gqa.ipynb`
-- [x] Linear Attention `attention-variants/linear_attention.ipynb` 
+- [x] Linear Attention `attention-variants/linear_attention.ipynb` [[paper]](https://arxiv.org/abs/2006.16236)
 - [x] Sparse Attention `attention-variants/sparse_attention.ipynb`
 - [x] Cross Attention `attention-variants/cross_attention.ipynb`
-- [x] Multi-Latent Attention `attention-variants/mla.ipynb`
+- [x] Multi-Latent Attention `attention-variants/mla.ipynb` [[paper]](https://arxiv.org/abs/2405.04434)
 
 ### Language Models
 
@@ -97,14 +97,14 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 - [x] KV Caching `language-models/KV_cache.ipynb` 
 - [x] Speculative Decoding `language-models/speculative_decoding.ipynb`
 - [x] RoPE embeddings `language-models/rope.ipynb`
-- [x] Multi-token Prediction `language-models/train_mtp.py` 
+- [x] Multi-token Prediction `language-models/train_mtp.py` [[paper]](https://arxiv.org/abs/2404.19737)
 
 ### Reinforcement Learning
 - Deep RL
    - Fundamentals `rl/fundamentals`
       - [x] DQN `train_dqn.py`
       - [x] REINFORCE `train_reinforce.py`
-      - [x] PPO `train_ppo.py`
+      - [x] PPO `train_ppo.py` [[paper]](https://arxiv.org/abs/1707.06347)
    - Actor-Critic and Key Variants `rl/actor-critic`
       - [x] Advantage Actor-Critic (A2C) `train_a2c.py`
       - [x] Asynchronous Advantage Actor-Critic (A3C) `train_a3c.py` 
@@ -128,15 +128,15 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 
 ### Generative Models
 
-- [x] Generative Adversarial Networks (GAN) `generative-models/train_gan.py`
+- [x] Generative Adversarial Networks (GAN) `generative-models/train_gan.py` [[paper]](https://arxiv.org/abs/1406.2661)
 - [x] Pix2Pix (Conditional GANs) `generative-models/train_pix2pix.py` 
 - [x] Variational Autoencoders (VAE) `generative-models/train_vae.py`
    - [x] Train an autoencoder for reconstruction `generative-models/train_autoencoder.py` 
 - [ ] Neural Radiance Fields (NeRF)
-- [x] Denoising Diffusion Probablistic Models (DDPM) `generative-models/train_ddpm.py` 
+- [x] Denoising Diffusion Probablistic Models (DDPM) `generative-models/train_ddpm.py` [[paper]](https://arxiv.org/abs/2006.11239)
 - [x] Classifier-based diffusion guidance `generative-models/ddpm_classifier_guidance.py`
    - [x] Classifier-free diffusion guidance `generative-models/ddpm_classifier_free_guidance.py`
-- [x] Flow matching `generative-models/train_flow_matching.py`
+- [x] Flow matching `generative-models/train_flow_matching.py` [[paper]](https://arxiv.org/abs/2210.02747)
 
 ### MLSys 
 - [ ] GPU Communication Algorithms (scatter, gather, ring/tree allreduce)
