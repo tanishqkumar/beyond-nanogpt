@@ -139,7 +139,7 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 - [x] Flow matching `generative-models/train_flow_matching.py` [[paper]](https://arxiv.org/abs/2210.02747)
 
 ### MLSys 
-- [ ] GPU Communication Algorithms (scatter, gather, ring/tree allreduce)
+- [x] GPU Communication Algorithms (scatter, gather, ring/tree allreduce) [[reference]](https://developer.nvidia.com/nccl)
 - [ ] Distributed Data Parallel
 - [ ] Tensor Parallel
 - [ ] Ring Attention (Context Parallel)
