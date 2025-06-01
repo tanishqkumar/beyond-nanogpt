@@ -4,6 +4,7 @@ TODO, this is a work in progress
 
 '''
 
+
 import torch, torch.nn as nn, torch.nn.functional as F
 import torch.distributed as dist 
 from datasets import load_dataset
@@ -12,10 +13,11 @@ import argparse
 from typing import List, Dict, Optional 
 
 
+### KEY NEW DDP ADDITIONS HERE ###
 def init(): 
     dist.init_process_group(backend="nccl")
     r, wsz = dist.get_rank(), dist.get_world_size()
-    torch.cuda.set_device(f"cuda:{r}")
+    torch.cuda.set_device(r)
 
     return r, wsz
 
@@ -33,22 +35,21 @@ def shutdown():
     # cleanup logic for hooks 
 
 # we don't support grad accumulation here
-class DDP(nn.Module): 
-    def __init__(self, model: nn.Module, rank: int, world_size: int, bucket_sz: int = 4, clip_grad: bool = True): 
+class DDP(nn.Module):
+    def __init__(self, model: nn.Module, rank: int, world_size: int, bucket_sz: int = 4): 
         super().__init__()
         self.model = model 
         self.rank = rank 
         self.world_size = world_size 
         self.bucket_sz = bucket_sz
         self.num_buckets = 0
-        self.last_bucket_sz = None
-        self.clip_grad = clip_grad 
+        self.pending_works = []
 
         self._sync_params()  
-        buckets, param2bucket_idx = self._make_buckets() # updates self.num_buckets in place 
+        buckets, param2bucket = self._make_buckets() # updates self.num_buckets in place 
         self.bucket_counter = [0] * self.num_buckets 
-        # self.last_bucket_sz exists by this point 
-        self._register_hooks(buckets, param2bucket_idx)
+        self.last_bucket_sz = len(buckets[-1])
+        self._register_hooks(buckets, param2bucket)
         
         # sync params to start 
     def _sync_params(self, src: int = 0): 
@@ -60,11 +61,11 @@ class DDP(nn.Module):
         num_params = len(params_list)
         buckets = []
         bucket = []
-        param2bucket_idx = {}
+        param2bucket = {} # idx to idx 
         for i in range(num_params): 
             p = params_list[i]
             bucket.append(p)
-            param2bucket_idx[p] = len(buckets)
+            param2bucket[id(p)] = len(buckets)
             if len(bucket) == self.bucket_sz: 
                 buckets.append(bucket)
                 self.num_buckets += 1
@@ -73,20 +74,23 @@ class DDP(nn.Module):
         # leftover bucket
         if bucket: 
             for p in bucket: 
-                param2bucket_idx[p] = len(buckets) 
+                param2bucket[id(p)] = len(buckets) 
             buckets.append(bucket)
             self.num_buckets += 1
-            self.last_bucket_sz = len(bucket)
-            
 
-        return buckets, param2bucket_idx
+        return buckets, param2bucket
+
+    # call be after bwd, before opt.step() 
+    def synchronize(self): 
+        for w in self.pending_works: 
+            w.wait()
+        self.pending_works = []
 
     # [bucket params, register allreduce hook per bucket]
-    def _register_hooks(self, buckets: List, param2bucket_idx: Dict): 
-        
-        def bucket_allreduce_hook(p: torch.Tensor): # runs on the param object, not on param.data tensor 
+    def _register_hooks(self, buckets: List, param2bucket: Dict): 
+        def bucket_allreduce_hook(param: torch.Tensor): # runs on param.
             # find the bucket this param is in 
-            bucket_idx = param2bucket_idx[p]
+            bucket_idx = param2bucket[id(param)]
             self.bucket_counter[bucket_idx] += 1 # all params in this bucket ready, ie. have p.grad populated 
 
             last_bucket_check = bool(bucket_idx == self.num_buckets - 1 and self.bucket_counter[bucket_idx] == self.last_bucket_sz) 
@@ -96,29 +100,24 @@ class DDP(nn.Module):
                 # fire allreduce for all params in this bucket 
                 for param in buckets[bucket_idx]:
                     # clip grads 
-                    if self.clip_grad: nn.utils.clip_grad_norm_(param, 1.)
-                    dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
-                    param.grad.data /= self.world_size
+                    work = dist.all_reduce(param.grad, op=dist.ReduceOp.AVG, async_op=True)
+                    self.pending_works.append(work)
                 self.bucket_counter[bucket_idx] = 0 # reset for next bwd 
-            
-            
+
         # actually register hooks now that we have buckets and hook fn 
         for p in self.model.parameters(): 
             p.register_post_accumulate_grad_hook(bucket_allreduce_hook)
+        
 
     def forward(self, *args, **kwargs): 
         return self.model(*args, **kwargs)
 
-    def __getattr__(self, name):
-        try: 
-            return super().__getattr__(name)
-        except AttributeError: 
-            return getattr(self.model, name)
+    # def __getattr__(self, name):
+    #     return getattr(self.model, name)
 
 
 
 # want to return bsz indices based on (r, wsz)
-    # TODO, do we need a set_epoch() method? are we handling drop_last correctly? 
 class DistributedSampler(torch.utils.data.Sampler): 
     # now let's support shuffle, drop_last and 
     def __init__(
@@ -151,31 +150,219 @@ class DistributedSampler(torch.utils.data.Sampler):
         self.epoch += 1 # we're called once per epoch 
         return iter(all_chunks[self.rank].tolist())
 
+    # 10 -> [4, 4, 2], asks for local rank len 
     def __len__(self): 
-        return self.len_dataset//self.world_size
+        q, r = divmod(self.len_dataset, self.world_size)
+        return r if self.rank == self.world_size - 1 else q # 2 if last rank else 4
+
+    # only DDP dataloaders need this, not normal ones since they just reseed iter(dataloader)
+    def set_epoch(self, epoch: int): 
+        self.epoch = epoch
+
+### END NEW DDP ADDITIONS ###
+
+## SETTING UP A SIMPLE TRANSFORMER TRAINING LOOP TO TEST DDP, BELOW IS NOT IMPORTANT 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from datasets import load_dataset
+from transformers import GPT2Tokenizer
+import argparse
+
+
+class TransformerLayer(nn.Module):
+    def __init__(self, hidden_dim, nheads, dropout=0.1):
+        super().__init__()
+        self.ln1 = nn.LayerNorm(hidden_dim)
+        self.attn = nn.MultiheadAttention(hidden_dim, nheads, dropout=dropout, batch_first=True)
+        self.ln2 = nn.LayerNorm(hidden_dim)
+        self.mlp = nn.Sequential(
+            nn.Linear(hidden_dim, 4 * hidden_dim),
+            nn.GELU(),
+            nn.Linear(4 * hidden_dim, hidden_dim),
+            nn.Dropout(dropout)
+        )
+        
+    def forward(self, x):
+        # Create causal mask
+        seq_len = x.size(1)
+        mask = torch.triu(torch.ones(seq_len, seq_len, device=x.device), diagonal=1).bool()
+        
+        # Self-attention with residual connection
+        normed = self.ln1(x)
+        attn_out, _ = self.attn(normed, normed, normed, attn_mask=mask)
+        x = x + attn_out
+        
+        # MLP with residual connection
+        x = x + self.mlp(self.ln2(x))
+        return x
+
+
+class Transformer(nn.Module):
+    def __init__(self, vocab_size, seq_len, hidden_dim, nlayers, nheads, dropout=0.1):
+        super().__init__()
+        self.token_embedding = nn.Embedding(vocab_size, hidden_dim)
+        self.pos_embedding = nn.Embedding(seq_len, hidden_dim)
+        self.dropout = nn.Dropout(dropout)
+        
+        self.layers = nn.ModuleList([
+            TransformerLayer(hidden_dim, nheads, dropout) 
+            for _ in range(nlayers)
+        ])
+        
+        self.ln_f = nn.LayerNorm(hidden_dim)
+        self.lm_head = nn.Linear(hidden_dim, vocab_size, bias=False)
+        
+    def forward(self, x):
+        B, T = x.shape
+        
+        # Token and position embeddings
+        tok_emb = self.token_embedding(x)
+        pos_emb = self.pos_embedding(torch.arange(T, device=x.device))
+        x = self.dropout(tok_emb + pos_emb)
+        
+        # Apply transformer layers
+        for layer in self.layers:
+            x = layer(x)
+            
+        # Final layer norm and linear projection
+        x = self.ln_f(x)
+        logits = self.lm_head(x)
+        
+        return logits
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Test distributed sampler')
-    parser.add_argument('--len_dataset', type=int, default=20, help='Length of dataset')
+    parser = argparse.ArgumentParser(description='Test distributed training with DDP')
+    parser.add_argument('--len_dataset', type=int, default=50_000, help='Length of dataset')
+    parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
+    parser.add_argument('--epochs', type=int, default=2, help='Number of epochs')
+    parser.add_argument('--seq_len', type=int, default=256, help='Sequence length')
+    parser.add_argument('--hidden_dim', type=int, default=128, help='Hidden dimension')
+    parser.add_argument('--nlayers', type=int, default=4, help='Number of transformer layers')
+    parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--shuffle', action='store_true', default=True, help='Shuffle dataset')
+    parser.add_argument('--clip-grad-norm', action='store_true', default=True, help='Clip grad norm')
     parser.add_argument('--drop_last', action='store_true', default=True, help='Drop last incomplete batch')
+    parser.add_argument('--verbose', action='store_true', help='Print verbose output')
     args = parser.parse_args()
     
     len_dataset = args.len_dataset
+    batch_size = args.batch_size
+    epochs = args.epochs
+    seq_len = args.seq_len
+    hidden_dim = args.hidden_dim
+    nlayers = args.nlayers
+    lr = args.lr
     shuffle = args.shuffle
     drop_last = args.drop_last
-
-
-    dataset = load_dataset("roneneldan/TinyStories")["train"].take(len_dataset)
-
+    verbose = args.verbose
+    clip_grad = args.clip_grad_norm
     r, wsz = init()
+    device = torch.device(f'cuda:{r}')
+    
+    if verbose:
+        print(f'Rank {r}: Initialized distributed training with world size {wsz}')
+    
+    if verbose:
+        print(f'Rank {r}: Loading TinyStories dataset (taking {len_dataset} samples)...')
+    dataset = load_dataset("roneneldan/TinyStories")["train"].take(len_dataset)
+    
+    if verbose:
+        print(f'Rank {r}: Loading GPT-2 tokenizer...')
+    tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    
+    def collate_batch(batch):
+        texts = [item['text'] for item in batch]
+        encoded = tokenizer(texts, padding=True, truncation=True, max_length=seq_len, return_tensors='pt')
+        return encoded['input_ids']
+    
+    if verbose:
+        print(f'Rank {r}: Creating distributed sampler...')
     dsampler = DistributedSampler(len_dataset, r, wsz, shuffle=shuffle, drop_last=drop_last)
     
+    if verbose:
+        print(f'Rank {r}: Creating dataloader with batch size {batch_size}...')
     dataloader = DataLoader(
         dataset,
+        batch_size=batch_size,
         drop_last=drop_last,
-        sampler=dsampler, 
+        sampler=dsampler,
+        collate_fn=collate_batch
     )
 
-    print(f'In rank {r}, next batch indices are {next(iter(dataloader))}')
+    if verbose:
+        print(f'Rank {r}: Creating transformer model with {nlayers} layers, {hidden_dim} hidden dim...')
+    model = Transformer(
+        vocab_size=tokenizer.vocab_size,
+        seq_len=seq_len,
+        hidden_dim=hidden_dim,
+        nlayers=nlayers,
+        nheads=4,
+        dropout=0.1
+    ).to(device)
+    
+    if verbose:
+        print(f'Rank {r}: Wrapping model in custom DDP...')
+    ddp_model = DDP(model, r, wsz)
+    
+    # some telemetry 
+    total_params = sum(p.numel() for p in ddp_model.parameters())
+    param_millions = total_params / 1_000_000
+    print(f'Rank {r}: Model has {param_millions:.2f}M parameters')
+    sample_batch = next(iter(dataloader))
+    tokens_per_batch = sample_batch.numel()
+    print(f'Rank {r}: Each batch contains {tokens_per_batch} tokens')
+    
+    if verbose:
+        print(f'Rank {r}: Creating AdamW optimizer with lr={lr}...')
+    optimizer = torch.optim.AdamW(ddp_model.parameters(), lr=lr)
+
+    print(f'Rank {r}: Starting DDP training for {epochs} epochs')
+    
+    for epoch in range(epochs):
+        dsampler.set_epoch(epoch)
+        ddp_model.train()
+        
+        print(f'Rank {r}: Starting epoch {epoch}')
+        total_loss = 0.0
+        num_batches = 0
+        
+        for batch_idx, input_ids in enumerate(dataloader):
+            input_ids = input_ids.to(device)
+            
+            targets = input_ids[:, 1:].contiguous()
+            inputs = input_ids[:, :-1].contiguous()
+            
+            optimizer.zero_grad()
+            logits = ddp_model(inputs)
+            
+            loss = F.cross_entropy(
+                logits.view(-1, logits.size(-1)),
+                targets.view(-1),
+                ignore_index=tokenizer.pad_token_id
+            )
+            
+            loss.backward()
+            ddp_model.synchronize() 
+            
+            if clip_grad: torch.nn.utils.clip_grad_norm_(ddp_model.parameters(), max_norm=1.0)
+
+            optimizer.step()
+            
+            total_loss += loss.item()
+            num_batches += 1
+            
+            if verbose and batch_idx % 5 == 0:
+                print(f'Rank {r}, Epoch {epoch}, Batch {batch_idx}: Loss = {loss.item():.4f}')
+            elif not verbose and batch_idx % 20 == 0:
+                print(f'Rank {r}, Epoch {epoch}, Batch {batch_idx}: Loss = {loss.item():.4f}')
+        
+        avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+        print(f'Rank {r}: Completed epoch {epoch}, Average Loss = {avg_loss:.4f}')
+    
+    print(f'Rank {r}: DDP training completed')
     shutdown()
