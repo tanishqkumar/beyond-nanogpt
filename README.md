@@ -154,7 +154,7 @@ Asterisks (*) denote particularly tricky implementations.
 
 - [ ] GLUE (old-school NLP)
 - [ ] GSM8k (generative)
-- [ ] MMLU (multiple-choice)
+- [x] MMLU (multiple-choice) [[paper]](https://arxiv.org/abs/2009.03300)
 - [ ] SimpleQA (LLM judge)
 - [ ] Design our own eval ("good taste")
 
