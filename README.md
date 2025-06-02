@@ -148,6 +148,14 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 - [ ] Paged Attention
 - [ ] Flash Attention in Triton 
 
+### Evals
+
+- [ ] GLUE (old-school NLP)
+- [ ] GSM8k (generative)
+- [ ] MMLU (multiple-choice)
+- [ ] SimpleQA (LLM judge)
+- [ ] Design our own eval ("good taste")
+
 ### RAG 
 - [ ] Hello Docs Q&A
 - [ ] Minimal Vector Database
@@ -162,14 +170,6 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 - [ ] Use ReAct and Reflexion to make an LLM create a PR on GitHub 
 - [ ] Multi-agent debate system with critique and refinement
 - [ ] Use RLAIF to RL a deep-research agent end-to-end
-
-### Evals
-
-- [ ] GLUE (old-school NLP)
-- [ ] GSM8k (generative)
-- [ ] MMLU (multiple-choice)
-- [ ] SimpleQA (LLM judge)
-- [ ] Design our own eval ("good taste")
 
 ---
 
