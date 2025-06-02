@@ -157,9 +157,9 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 - [ ] Design our own eval ("good taste")
 
 ### RAG 
-- [ ] Hello Docs Q&A
 - [ ] Minimal Vector Database
 - [ ] Train Small Embedding and Reranking Models
+- [ ] Hello Docs Q&A
 - [ ] Multi-Hop Decomposition RAG
 - [ ] Self-Reranking Feedback Loop 
 - [ ] Graph RAG
