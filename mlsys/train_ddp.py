@@ -1,6 +1,52 @@
 '''
 (https://arxiv.org/pdf/2006.15704) PyTorch Distributed: Experiences on Accelerating Data Parallel Training
-TODO, this is a work in progress
+
+This file assumes only dist.comms primitives like dist.broadcast and dist.all_reduce, and implements
+DDP. Torch DDP is nice because all you have to do is 1) pass in a DistributedSampler into your dataloader 
+when init'ing it with your HF dataset, and 2) wrap model -> DDP(model), and voila -- if you run the resulting
+code with torchrun on a machine with multiple GPUs, they will automatically run data parallel. 
+
+BTW, "data parallel" just means each GPU stores a copy of the model, gets a separate (disjoint) batch 
+from the other GPUs, computes the grad, and the *final grad applied to the model* is an average of the 
+empirical batch grad over all GPUs, so you effectively increase batch size by world_size. This speeds up 
+training by a linear factor (ie. reduces number of required steps to reach a certain loss) if you're 
+not close to the critical batch size (which is when your bsz is so large you get diminishing returns in 
+terms of reduction in grad variance). 
+
+The key objects and how they work are as follows. 
+    A HF dataset is just a lookup table that stores data and implements __getitem__ so you can 
+    read from it, eg. dataset[10]. 
+    A pytorch dataloader wraps a dataset (taking it as its first arg), and implements batching, shuffling, 
+    seeding, iterating, etc. 
+    A sampler is something a dataloader uses under the hood to sample indices from the dataset to batch. 
+    So for instance with normal single-process dataloading, if you set Shuffle=True, a RandomSampler 
+    will be used under the hood that returns a permutation of data indices to the dataset, and then 
+    the dataset will create batches in that new permuted order. 
+
+    In our code, the two key objects we create are: 
+        - DistributedSampler: gives each rank indices for its entire epoch (of size len_dataset//world_sz)
+          making sure each GPU sees a disjoint subset of the full dataset. 
+        - DDP: this wraps the model, supporting distributed data parallel training:
+          * Ensures all ranks start with same parameters
+          * All-reduces gradients after local backward pass
+          * Uses gradient bucketing for efficiency
+          * Overlaps communication with computation
+          * Exposes underlying model functions for training compatibility
+          * Provides cleanup logic for registered hooks
+            
+    Intuition for this code: 
+        --> We create and use two key abstractions: buckets and hooks. 
+            
+            --> Buckets group parameters into disjoint 
+        subsets to avoid per-parameter allreduce calls (wasteful for small data). We fire 
+        allreduce only when all parameters in a bucket have computed gradients, tracked via 
+        per-bucket counters that parameters increment when their .grad is populated.
+
+            --> Hooks are PyTorch functions triggered after key operations (fwd/bwd/grad accumulation). 
+        We use "register_post_accumulate_grad_hook" to allreduce after gradients populate. 
+        Using async_op=True prevents blocking the backward pass - we share/average layer N 
+        gradients while layers N-1, N-2 are still computing. "Overlapping comms/comp" is 
+        simply setting async_op=True and storing work handles for synchronization.
 
 '''
 
@@ -10,7 +56,7 @@ import torch.distributed as dist
 from datasets import load_dataset
 from torch.utils.data import DataLoader 
 import argparse
-from typing import List, Dict, Optional 
+from typing import List, Dict 
 
 
 ### KEY NEW DDP ADDITIONS HERE ###
@@ -25,14 +71,7 @@ def shutdown():
     dist.destroy_process_group()
 
 
-# this should wrap model, and implement
-    # ensure all ranks start with same params
-    # allreduce grads after local backward pass
-    # use grad bucketing 
-    # overlap comms / comp 
-    # expose any key functions from the underlying model that training will assume 
-        # eg. if training assume model.x we want to set ddp.x(args, kwargs) = ddp.model.x(args, kwargs)
-    # cleanup logic for hooks 
+
 
 # we don't support grad accumulation here
 class DDP(nn.Module):
@@ -44,6 +83,7 @@ class DDP(nn.Module):
         self.bucket_sz = bucket_sz
         self.num_buckets = 0
         self.pending_works = []
+        self.hooks_to_clean = []
 
         self._sync_params()  
         buckets, param2bucket = self._make_buckets() # updates self.num_buckets in place 
@@ -80,7 +120,8 @@ class DDP(nn.Module):
 
         return buckets, param2bucket
 
-    # call be after bwd, before opt.step() 
+    # call this after bwd, before opt.step(), so we make sure that 
+        # all the all_reduces finish (ie. grads are sync'd)
     def synchronize(self): 
         for w in self.pending_works: 
             w.wait()
@@ -95,26 +136,26 @@ class DDP(nn.Module):
 
             last_bucket_check = bool(bucket_idx == self.num_buckets - 1 and self.bucket_counter[bucket_idx] == self.last_bucket_sz) 
 
-            # is this fine or should we account for two params hitting this at the same time? 
             if self.bucket_counter[bucket_idx] == self.bucket_sz or last_bucket_check: 
                 # fire allreduce for all params in this bucket 
                 for param in buckets[bucket_idx]:
-                    # clip grads 
                     work = dist.all_reduce(param.grad, op=dist.ReduceOp.AVG, async_op=True)
                     self.pending_works.append(work)
                 self.bucket_counter[bucket_idx] = 0 # reset for next bwd 
 
         # actually register hooks now that we have buckets and hook fn 
         for p in self.model.parameters(): 
-            p.register_post_accumulate_grad_hook(bucket_allreduce_hook)
+            handle = p.register_post_accumulate_grad_hook(bucket_allreduce_hook)
+            self.hooks_to_clean.append(handle)
         
-
     def forward(self, *args, **kwargs): 
         return self.model(*args, **kwargs)
 
-    # def __getattr__(self, name):
-    #     return getattr(self.model, name)
-
+    def __del__(self): 
+        self.synchronize()
+        for hk in self.hooks_to_clean: 
+            hk.remove() # cleanup to help gc
+        self.hooks_to_clean = []
 
 
 # want to return bsz indices based on (r, wsz)
@@ -170,7 +211,6 @@ from datasets import load_dataset
 from transformers import GPT2Tokenizer
 import argparse
 
-
 class TransformerLayer(nn.Module):
     def __init__(self, hidden_dim, nheads, dropout=0.1):
         super().__init__()
@@ -185,16 +225,13 @@ class TransformerLayer(nn.Module):
         )
         
     def forward(self, x):
-        # Create causal mask
         seq_len = x.size(1)
         mask = torch.triu(torch.ones(seq_len, seq_len, device=x.device), diagonal=1).bool()
         
-        # Self-attention with residual connection
         normed = self.ln1(x)
         attn_out, _ = self.attn(normed, normed, normed, attn_mask=mask)
         x = x + attn_out
         
-        # MLP with residual connection
         x = x + self.mlp(self.ln2(x))
         return x
 
@@ -217,21 +254,17 @@ class Transformer(nn.Module):
     def forward(self, x):
         B, T = x.shape
         
-        # Token and position embeddings
         tok_emb = self.token_embedding(x)
         pos_emb = self.pos_embedding(torch.arange(T, device=x.device))
         x = self.dropout(tok_emb + pos_emb)
         
-        # Apply transformer layers
         for layer in self.layers:
             x = layer(x)
             
-        # Final layer norm and linear projection
         x = self.ln_f(x)
         logits = self.lm_head(x)
         
         return logits
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Test distributed training with DDP')
@@ -259,6 +292,7 @@ if __name__ == "__main__":
     drop_last = args.drop_last
     verbose = args.verbose
     clip_grad = args.clip_grad_norm
+    
     r, wsz = init()
     device = torch.device(f'cuda:{r}')
     
