@@ -1,22 +1,171 @@
 '''
-TODO, fill out my internal notes below. Lots of intuition pumps needed, this is a conceptually confusing arch. 
+(https://arxiv.org/abs/2312.00752) Mamba: Linear-Time Sequence Modeling with Selective State Spaces
+
+This is a conceptually subtle architecture if you're coming from Transformer-land, 
+and requires understanding a few different things 
+(basic ODEs, notions of linearity/time-invariance in sequence models, convolutions vs recurrences, etc),
+so I'll spend a bit more time explaining this than usual. 
+
+- What even is an SSM 
+    --> State space models are sequence models that come from a branch of math called linear dynamical systems. 
+    This means the state of the system evolves linearly over time like 
+        d[s(t)]/dt := As(t) + Bx(t)
+        y(t) = C(t)s(t) + D(t)
+
+    Where x(t) is the input sequence and y(t) is the sequence being modeled. The key is that we're hypothesizing
+    a generative process where the target sequence is a pure function of the current input token, and all past 
+    x(t) affect it only through a latent (small) hidden state. 
+    
+    In language, the "state" is memory of all the important context from before we'll need to predict the next token. 
+    Notationally, s(t) is the state (tensor), x(t) is the input (tokens in an LLM where t is discretized), and y(t) is the output
+    (eg. predicted next token in a sequence model). 
+
+    --> There's two important terms that help distinguish between SSMs/RNNs/archs like this: "linear" and "time invariant." 
+    Linear just means there's no nonlinearities in state update. So RNNs which have something like s(t+1) = tanh(A(t)s(t) + B(t)x(t)) 
+    are not linear, but obviously you can set the nonlinearity to a linear function so they become linear RNNs. Then
+    "time invariant" means you can "unfold" the update over time. Examples: 
+        
+        RNN: Nonlinear, time-invariant
+        GRU/LSTM: nonlinear, time-variant
+        Linear RNN/attention: Linear, time-invariant
+        S4 SSM: linear, time invariant (prev work by authors)
+        Mamba: linear, *not* time-invariant (that's the point! selectivity = data dependent SSM params = time-variance of parameters)
+        
+        "SSM" generally refers to linear systems like linear attention, linear RNN, or Mamba. 
 
 - Discretization
     - Why discretize and what to discretize 
-    - ZOH 
-    - Euler
-- Eigenvalues
-- Intuition for shapes and typical sizes 
-- Comms vs comp 
-    - Conv = local token mixing of adjacent $$k$$ tokens, `selective_scan()` mixes globally by moving relevant global information selectively into state and then using state to make the next token prediction. 
-    - Linear projections (where most of the params in the model are) compute along single tokens, like MLPs in Transformers. 
-- Where are nonlinearities? 
-- Comparison to Transformer/RNN 
-    - Complexity Analysis 
-- Scan -- what is elementwise vs matmul and why 
-    - $$A(t) h(t)$$ is actually an elementwise product because $$A$$ is assumed diagonal -- if it were not, it'd have $$DN \times DN$$ params (untenably large). This is OK because micro-states and channels are mixed in other places, such as in $$y(t) = C(t) h(t)$$ mixes micro states as it's `bdn,bn->bd`. 
-        - Then MLP layers mix channels $$D$$. 
-    - 
+        --> While a linear dynamical system like above is written with t being continuous, in language 
+        there are finite number of tokens equally spaced, tokens aren't in "continuous time." So we have to derive 
+        the same recurrences, but in discrete time over token space. 
+        --> We do this by learning the continuous params, then applying mathematical transformations to discretize. 
+        --> The transformations are A_disc = exp(-A_cont * delta), B_disc = 
+        --> While these may seem strange, they are mathematically derived starting with the SSM equations: 
+                d[s(t)]/dt := As(t) + Bx(t)
+                y(t) = C(t)s(t) + D(t)
+
+        We get these equations as follows. 
+            First integrate the first equation wrt t, assuming that the input x(t) is constant in every interval 
+        between discrete inputs n, n+1, ie. that x(t) is constant in between tokens [t * delta, (t+1) * delta]. 
+            This assumption is called "Zero-th order hold discretization" (ZOH). 
+            Using the method of integrating factors to solve the SSM ODE within a given interval, 
+            we get that (if you've ever taken diffeqs you should know this)
+                d[s(t)]/dt := As(t) + Bx(t)
+                becomes 
+                d/dt[exp(-At)h(t)] = \int_0^delta exp(-Atau)Bu(tau) dtau 
+                where by ZOH, u(tau) = u is independent within each interval 
+                so we have 
+                d/dt[exp(-At)h(t)] = u * \int_0^delta exp(-Atau)B dtau
+                where we can integrate both sides wrt t and rearrange to get the solution to the ODE: 
+                h(t) = exp(-At)h(t_0) + \int_0^delta exp(t-tau) Bu
+                in ODEs, the first term is the "free response" and second term the "forced response" driving the 
+                dynamics. 
+                Then, we can observe that for invertible A, we have that in general 
+                \int_0^delta exp(t-tau)B = A^{-1}(exp(delta * A) - I)B
+                which you can see by differentiating the RHS to get the left. 
+                This means that the co-efficient A_d in front of h(t_0) is 
+                A_d = exp(A delta) and in front of u is 
+                B_d = A^{-1}(exp(delta * A) - I)B
+                and these are the equations you see in the discretization in the paper. 
+
+                Because A is diagonal (stronger than invertible), (see below section on intuition behind matrix A
+                and the significance of it being assumed diagonal), this means computing A_d and B_d actually 
+                only involves elementwise products (not matmuls). 
+            
+        --> Can't you just learn the discretized A_d(t) and B_d(t) directly? Why do we learn the continuous ones then 
+        discretize using this annoying math? 
+            --> You can, but there are some constraints these matrices need to satisfy that discretizing after learning forces, 
+            eg. A must be a contraction ||A|| <= 1 (so that we don't blow up over time upon continuously applying it to hidden state), etc. 
+            Learning A in continuous space then discretizing "algorithmically" by setting A_d = exp(-A * delta)
+            makes sure these constraints are satisfied, and that the computation has a clear, principled, interpretation.
+            --> And a side note: math like this (signal processing) has actually been the workhorse behind machine/statistical learning 
+            for decades before neural networks ate everyone's lunch. It was enough to get man on the moon (Kalman filters, etc)!
+            So it's not "annoying" -- it's absolutely fundamentals for any AI researcher!
+
+The following matrices are the learned state space parameters. 
+
+- The matrix A
+    --> Interpretation: 
+            In principle, this should be ND x ND to "mix the entire state" at every step. However, for any reasonable state size, 
+            that's too large. So we implicitly parameterize it as diagonal, and learn only diag(a), which is just ND parameters. 
+            This means it computes over each state element separately. Importantly, it is *not parameter dependent*, ie. A(t) = A
+            is constant wrt tokens. However, this is fine because we are not learning A directly as it appears in the SSM update -- 
+            the update has bar_A = exp(-delta * A), so delta being token-dependent is enough to make the state mixing 
+            token dependent. 
+    --> Eigenvalues 
+            These have to be negative real parts to ensure stability - if Re(eigenvalues) > 0, the system would explode over time.
+            For diagonal A, eigenvalues are just the diagonal elements themselves, so we need diag(A) < 0. This constraint
+            is naturally satisfied in practice through the exponential discretization bar_A = exp(-delta * A), which is always
+            a contraction (||bar_A|| <= 1) regardless of A's values.
+    --> Elementwise vs matrix product 
+        Because A is diagonal, all operations involving A become elementwise multiplications rather than expensive matrix
+        multiplications. This is crucial for efficiency - a full ND x ND matrix multiply would be O((ND)^2) = O(N^2 D^2),
+        but diagonal A makes it O(ND). The diagonal constraint trades off expressiveness for computational tractability,
+        similar to how [tridiagonal parametrizations](https://www.diva-portal.org/smash/get/diva2:316016/FULLTEXT02) 
+        reduce parameter count while maintaining system representability.
+
+- The matrix B 
+    --> Interpretation: 
+        Projects input tokens x(t) ∈ R^D into the state space h(t) ∈ R^(ND). Shape is ND x D, so it's a "wide" matrix
+        that expands the D-dimensional input into ND state dimensions. Unlike A, B is token-dependent B(t) through the 
+        selective mechanism, allowing the model to choose which inputs to incorporate into the hidden state based on context.
+        The selectivity comes from B being computed as a function of the input: B(t) = Linear_B(x(t)), making it adaptive.
+
+- The matrix C
+    --> Interpretation: mixes micro-states N -> N, where a "micro-state" for a channel d in D is just eg. N=16 
+    length vector storing the information for that channel. 
+    
+- The matrix Delta
+    --> Interpretation: 
+    --> Critical, "learned discretization" 
+        --> This allows selectivity by modifying state to remember new tokens less/more 
+
+- Intuition pump 
+    --> Full arch takes BLD -> BLD like any other sequence model. 
+    --> Computation within tokens vs communication between tokens 
+        --> For any arch, a good question to ask is: where are things mixed? 
+            - For example, a transformer mixes tokens with attention, and channels/features within tokens in MLPs
+            - Mamba mixes tokens in two places: conv1d (local mixing of k adjacent tokens) and .selective_scan() which is 
+            global mixing, a kind of "Attention mechanism" of fixed state wrt sequence length. 
+                - A computes on each micro-state (of which there are DN) independently. 
+                - delta selectively updates state, large delta(x_t) means token x_t shouldn't enter state h_t and vice versa. 
+                - y(t) = C(t)h(t) where C(t) is selective and mixes micro-states in h, ie. C: N -> N
+            - Linear projections mix across D, ie. within tokens, like MLPs in Transformers
+        Thus each of (N, D, t) are mixed at some point in the model, allowing it to learn sequences. 
+    --> State size needs to be some N>>1 multiple of D because it needs to store "a running memory" of the past, 
+    and D is just enough information for a single token. So for instance if channel k in [D] represents the 
+    "tone" of the piece of writing (formal vs casual vs legal vs emoji-like etc), then the N microstates in 
+    the state corresponding to channel k will store information about the running history of the tone throughout the document
+    (eg. character X in this play talks with tone Y but character A with tone B). 
+    
+
+- What's the .ssm() and .selective_scan()? 
+    --> These are the heart of Mamba. SSM() is just a wrapper around .selective_scan that reshapes everything and preprocesses SSM params 
+    (eg. discretize) to pass into .selective_scan(). This function basically implements the state space recurrence. 
+    --> While we write this recurrence as a simple for loop that takes O(L), the actual Mamba paper uses a O(logL) time algorithm that 
+    is hardware aware. Using a simple for loop over seqlen for each forward pass is actually one of the key disadvantages of RNN training, 
+    which is why it's important that a production Mamba implementation *does not* do that. The two are mathematically equivalent, though. 
+    They call it "hardware aware parallel scan." 
+
+- Where are nonlinearities that give expressive power? 
+    - Sigmoid after conv in each block 
+    - GELU during gating in each block
+    --> See Fig 3 in Paper 
+    
+- Time complexity comparison to Transformer/RNN 
+    Training 
+        Transformers: O(L^2d)
+            --> But they are parallelizble over L, whereas RNNs are not, so they they 
+            "train in parallel" leading to very high throughput in practice, even though, yes, 
+            the amount of raw computation is quadratic in seqlen. 
+        RNNs: O(Ld^2) -- not parallelizable though, so you "feel" the O(L) term. 
+        Mamba: O(Ld^2), same reason as RNN, we have a fixed size state. 
+    Inference
+        Transformers: O(Ld) with KV cache since each new token's query needs to attend to all prev keys. 
+        RNNs: O(d) independent of seqlen by just bonking new token embedding against h_t state. 
+        Mamba: O(d), same as RNN. 
+Upshot of Mamba is token-dependent parameters, a key feature of attention, and porting it to 
+RNN-land which allows for blazing fast inference. 
 
 '''
 from __future__ import annotations 
@@ -24,8 +173,6 @@ import argparse
 import torch, torch.nn as nn
 import torch.utils.data as data
 import string
-import math
-import os
 import wandb
 from datasets import load_dataset
 from tqdm import tqdm
@@ -37,13 +184,14 @@ class MambaArgs:
     D: int
     depth: int = 12
     V: int = 10_000 # vocab size
-    mult: int = 2
-    N: int = 8 # d_h = dn, ie. 'expansion factor' of hidden dim 
-    D_h: Optional[int] = None
-    k: int = 3 # kernel size for depthwise conv1d
+    mult: int = 2 # expansion factor for mlps
+    # state size is DN, N is the num of "micro channels" each channel has to store info in state
+    N: int = 8 
+    D_h: Optional[int] = None # this is "the true hidden dim D", using an expansion factor D_h = D * mult
+    k: int = 3 # kernel size for depthwise conv1d -- this just means we mix adjacent tokens [x_{t-1}, x_t, x_{t+1}] in the conv 
     act: nn.Module = nn.GELU
 
-class Mamba(nn.Module): # embed, mambablocks
+class Mamba(nn.Module): 
     def __init__(self, args: MambaArgs): 
         super().__init__()
         self.embed = nn.Embedding(args.V, args.D)
@@ -51,7 +199,7 @@ class Mamba(nn.Module): # embed, mambablocks
         self.final_ln = RMSNorm()
         self.blocks = nn.ModuleList([MambaBlock(args) for _ in range(args.depth)])
 
-    # takes in a tensor of bl tokens and outputs logits of bld
+    # takes in a tensor of [B, L] tokens (ints) and outputs logits of [B, L, D] as per usual 
     def forward(self, x: torch.Tensor) -> torch.Tensor: 
         h = self.embed(x) # bl -> bld
         for block in self.blocks: 
@@ -59,8 +207,8 @@ class Mamba(nn.Module): # embed, mambablocks
         h = self.final_ln(h)
         return self.unembed(h) # bld -> blv logits
 
-# normalize each token, d-vector, but the rmsnorm of that vector
-    # essentially layernorm without the centering/mean (and rmsnorm instead of sdev norm)
+# RMSNorm normalizes each token, ie. d-vector, by the rmsnorm of that vector
+    # essentially layernorm without centering and with rmsnorm instead of stdev as normalization
 class RMSNorm(nn.Module): 
     def __init__(self, eps: float = 1e-5): 
         super().__init__()
@@ -71,12 +219,12 @@ class RMSNorm(nn.Module):
         norms = torch.sqrt((x ** 2).mean(dim=-1, keepdim=True)) # bld -> bl1, one norm for each bl token
         return (x * self.gamma)/(norms + self.eps)
         
-
+## Key class to conceptually understand in this file -- esp the role of 1) the conv and 2) the selective scan 
 class MambaBlock(nn.Module): 
     def __init__(self, args: MambaArgs): 
         super().__init__()
         self.D = args.D 
-        self.N = args.N # expansion factor from d -> state size dn
+        self.N = args.N 
         self.mult = args.mult
         self.D_h = args.D * args.mult if args.D_h is None else args.D_h # "true hidden dim"
         self.k = args.k
@@ -89,7 +237,7 @@ class MambaBlock(nn.Module):
             in_channels=self.D_h, 
             out_channels=self.D_h, 
             kernel_size=args.k,
-            groups=self.D_h,
+            groups=self.D_h, # this makes the conv "depthwise," ie. the same conv across channel
             padding=args.k//2 # ensures we preserve dim 
             ) # [d_h, k] params, conv for local mixing of tokens
         self.W_g = nn.Linear(self.D_h, self.D_h) 
@@ -170,7 +318,7 @@ class MambaBlock(nn.Module):
 
         return out
 
-# char level vocab for simplicity
+## BELOW IS JUST VANILLA TRAINING CODE TAKEN FROM train_rnn.py, important Mamba definitions are above ##
 chars = string.printable
 char_to_idx = {ch: i for i, ch in enumerate(chars)}
 idx_to_char = {i: ch for i, ch in enumerate(chars)}
@@ -181,7 +329,7 @@ def collate_chars(batch):
     texts = [item['text'] for item in batch]
     encoded = [[char_to_idx[c] for c in text if c in chars] for text in texts]
     # limit sequence length for faster training
-    encoded = [seq[:256] for seq in encoded]  # limit to 128 tokens
+    encoded = [seq[:256] for seq in encoded] 
     max_len = max(len(seq) for seq in encoded)
     padded = [seq + [0] * (max_len - len(seq)) for seq in encoded]
     return torch.tensor(padded)
@@ -203,8 +351,9 @@ def main():
 
     if args.verbose:
         print("Loading dataset...")
-    # use a smaller subset of the dataset
-    dataset = load_dataset("roneneldan/TinyStories", split="train")  # only use 5% of the data
+    
+
+    dataset = load_dataset("roneneldan/TinyStories", split="train")  
 
     if args.verbose:
         print("Creating dataloader...")
@@ -219,7 +368,7 @@ def main():
         print("Initializing model and training components...")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # set autocast for mixed precision training
+    # mixed precision training
     scaler = torch.amp.GradScaler('cuda')
     
     mamba_args = MambaArgs(
@@ -235,7 +384,7 @@ def main():
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.lr/10)
     
-    # simplified lr schedule for demo
+    # simplified lr schedule 
     total_steps = min(1_000, len(train_dataloader))
     warmup_steps = int(0.05 * total_steps)
     scheduler = torch.optim.lr_scheduler.LambdaLR(
@@ -250,8 +399,6 @@ def main():
 
     total_loss = 0.0
     steps = 0
-
-    os.makedirs('mamba_checkpoints', exist_ok=True)
 
     if args.verbose:
         print("Starting training loop...")
@@ -274,25 +421,19 @@ def main():
         # scale the loss and backprop
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # increased for faster convergence
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  
         scaler.step(optimizer)
-        scheduler.step()  # Call scheduler.step() after optimizer.step()
+        scheduler.step()  
         scaler.update()
 
         total_loss += loss.item()
         steps += 1
 
-        # log to wandb 
         if args.wandb:
             wandb.log({'loss': loss.item(), 'lr': scheduler.get_last_lr()[0]}, step=steps)
 
         if steps % 10 == 0:
             print(f"Step {steps}, Loss: {loss.item():.4f}, LR: {scheduler.get_last_lr()[0]:.2e}")
-            
-        if steps % 250 == 0:  # save less frequently
-            checkpoint_path = f"mamba_checkpoints/{steps}.pt"
-            print(f"Saving checkpoint to {checkpoint_path}")
-            torch.save(model.state_dict(), checkpoint_path)
             
         if args.num_steps is not None and steps >= args.num_steps:
             break
