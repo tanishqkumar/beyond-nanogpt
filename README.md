@@ -146,7 +146,28 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 - [ ] Paged Attention
 - [ ] Flash Attention in Triton 
 
-[Coming Soon]: RAG, Agents, Multimodality, Robotics, Evals. 
+### RAG 
+- [ ] Minimal Vector Database from Scratch 
+- [ ] Train an embedding model
+- [ ] Train a reranker
+- [ ] RAG with Query Decomposition 
+- [ ] Graph RAG
+- [ ] RAG for factuality 
+
+### Agents 
+- [ ] Scaffold to make an LLM into tool-use research agent
+- [ ] Simulate a simple society with language models
+- [ ] Use ReAct and Reflexion to make an LLM create a PR on GitHub 
+- [ ] Multi-agent debate system with critique and refinement
+- [ ] Use RLAIF to RL a deep-research agent end-to-end
+
+### Evals
+
+- [ ] GLUE (old-school NLP)
+- [ ] GSM8k (generative)
+- [ ] MMLU (multiple-choice)
+- [ ] SimpleQA (LLM judge)
+- [ ] Design our own eval ("good taste")
 
 ---
 
