@@ -124,7 +124,9 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
    - [ ] RLHF a base model with UltraFeedback 
    - [ ] DPO a base model with UltraFeedback
    - [ ] GRPO for reasoning: outcome reward on MATH
-   - [ ] Distributed RLAIF for tool use
+   - [ ] RL an LLM to match output of a calculator program 
+   - [ ] RL a VLM to pass captchas
+   - [ ] RL an LLM to write good jokes 
 
 ### Generative Models
 
@@ -147,12 +149,12 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 - [ ] Flash Attention in Triton 
 
 ### RAG 
-- [ ] Minimal Vector Database from Scratch 
-- [ ] Train an embedding model
-- [ ] Train a reranker
-- [ ] RAG with Query Decomposition 
+- [ ] Hello Docs Q&A
+- [ ] Minimal Vector Database
+- [ ] Train Small Embedding and Reranking Models
+- [ ] Multi-Hop Decomposition RAG
+- [ ] Self-Reranking Feedback Loop 
 - [ ] Graph RAG
-- [ ] RAG for factuality 
 
 ### Agents 
 - [ ] Scaffold to make an LLM into tool-use research agent
