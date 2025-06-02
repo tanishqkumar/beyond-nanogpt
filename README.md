@@ -68,6 +68,8 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 
 ## Current Implementations and Roadmap
 
+Asterisks (*) denote particularly tricky implementations. 
+
 ### Architectures
 - [x] Basic Transformer `language-models/transformer.py` and `train_naive.py` [[paper]](https://arxiv.org/abs/1706.03762)
 - [x] Vision Transformer (ViT) `architectures/train_vit.py` [[paper]](https://arxiv.org/abs/2010.11929)
@@ -76,17 +78,17 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 - [x] Residual Networks (ResNet) `architectures/train_resnet.py` [[paper]](https://arxiv.org/abs/1512.03385)
 - [x] MLP-Mixer `architectures/train_mlp_mixer.py` [[paper]](https://arxiv.org/abs/2105.01601)
 - [x] LSTM `architectures/train_lstm.py` [[paper]](https://www.bioinf.jku.at/publications/older/2604.pdf)
-- [x] Mixture-of-Experts (MoE) `architectures/train_moe.py` [[paper]](https://arxiv.org/abs/2101.03961)
-- [x] Mamba `architectures/train_mamba.py` [[paper]](https://arxiv.org/abs/2312.00752)
+- [x] Mixture-of-Experts* (MoE) `architectures/train_moe.py` [[paper]](https://arxiv.org/abs/2101.03961)
+- [x] Mamba* `architectures/train_mamba.py` [[paper]](https://arxiv.org/abs/2312.00752)
 
 ### Attention Variants
 - [x] Vanilla Self-Attention `attention-variants/vanilla_attention.ipynb` [[paper]](https://arxiv.org/abs/1706.03762)
 - [x] Multi-head Self-Attention `attention-variants/mhsa.ipynb` [[paper]](https://arxiv.org/abs/1706.03762)
 - [x] Grouped-Query Attention `attention-variants/gqa.ipynb` [[paper]](https://arxiv.org/abs/2305.13245)
-- [x] Linear Attention `attention-variants/linear_attention.ipynb` [[paper]](https://arxiv.org/abs/2006.16236)
+- [x] Linear Attention* `attention-variants/linear_attention.ipynb` [[paper]](https://arxiv.org/abs/2006.16236)
 - [x] Sparse Attention `attention-variants/sparse_attention.ipynb` [[paper]](https://arxiv.org/abs/1904.10509)
 - [x] Cross Attention `attention-variants/cross_attention.ipynb` [[paper]](https://arxiv.org/abs/1706.03762)
-- [x] Multi-Latent Attention `attention-variants/mla.ipynb` [[paper]](https://arxiv.org/abs/2405.04434)
+- [x] Multi-Latent Attention* `attention-variants/mla.ipynb` [[paper]](https://arxiv.org/abs/2405.04434)
 
 ### Language Models
 
@@ -96,7 +98,7 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 - [x] Byte-Pair Encoding `language-models/bpe.ipynb` [[paper]](https://arxiv.org/abs/1508.07909)
 - [x] KV Caching `language-models/KV_cache.ipynb` [[reference]](https://huggingface.co/blog/not-lain/kv-caching)
 - [x] Speculative Decoding `language-models/speculative_decoding.ipynb` [[paper]](https://arxiv.org/abs/2211.17192)
-- [x] RoPE embeddings `language-models/rope.ipynb` [[paper]](https://arxiv.org/abs/2104.09864)
+- [x] RoPE embeddings* `language-models/rope.ipynb` [[paper]](https://arxiv.org/abs/2104.09864)
 - [x] Multi-token Prediction `language-models/train_mtp.py` [[paper]](https://arxiv.org/abs/2404.19737)
 
 ### Reinforcement Learning
@@ -108,9 +110,9 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
    - Actor-Critic and Key Variants `rl/actor-critic`
       - [x] Advantage Actor-Critic (A2C) `train_a2c.py` [[paper]](https://arxiv.org/abs/1602.01783)
       - [x] Asynchronous Advantage Actor-Critic (A3C) `train_a3c.py` [[paper]](https://arxiv.org/abs/1602.01783)
-      - [x] IMPALA (distributed RL) `train_impala.py` [[paper]](https://arxiv.org/abs/1802.01561)
+      - [x] IMPALA* (distributed RL) `train_impala.py` [[paper]](https://arxiv.org/abs/1802.01561)
       - [x] Deep Deterministic Policy Gradient (DDPG) `train_ddpg.py` [[paper]](https://arxiv.org/abs/1509.02971)
-      - [x] Soft Actor-Critic (SAC) `train_sac.py` [[paper]](https://arxiv.org/abs/1801.01290)
+      - [x] Soft Actor-Critic* (SAC) `train_sac.py` [[paper]](https://arxiv.org/abs/1801.01290)
    - Model-based RL  `rl/model-based`
       - [x] Model Predictive Control (MPC) `train_mpc.py`[[reference]](https://en.wikipedia.org/wiki/Model_predictive_control)
       - [x] Expert Iteration (MCTS) `train_expert_iteration.py` [[paper]](https://arxiv.org/abs/1705.08439)
@@ -161,7 +163,7 @@ systems fundamentals like GPU communication algorithms and data/tensor paralleli
 - [ ] Hello Docs Q&A
 - [ ] Multi-Hop Decomposition RAG
 - [ ] Self-Reranking Feedback Loop 
-- [ ] Sparse and dense retrieval 
+- [ ] Sparse and Dense Retrieval 
 - [ ] Graph RAG
 
 ### Agents 
