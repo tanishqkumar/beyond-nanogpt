@@ -106,15 +106,15 @@ if __name__ == "__main__": # hit together API for LLM as a judge grading of a re
     # a more sophisticated implementation would hit the LLM judge API asynchronously 
         # and batch generation over student while that is happening
     parser = argparse.ArgumentParser(description="Evaluate SimpleQA using LLM as judge")
-    parser.add_argument("--api_key", type=str, default="TODO, set in your env", help="Together API key")
+    parser.add_argument("--api_key", type=str, default=os.getenv("TOGETHER_API_KEY"), help="Together API key")
     parser.add_argument("--dataset_name", type=str, default="basicv8vc/SimpleQA", help="Dataset name")
     # the student is the model whose factuality we are evaluating, the teacher is the LLM judge grading its responses
         # SimpleQA is challenging for even frontier models, so we shouldn't expect too much from small/tiny models. 
         # Something like Llama3.1 8B would be a good student here, but I can't use that for generation even on a H100 lol
-    parser.add_argument("--student_name", type=str, default="HuggingFaceTB/SmolLM-135M-Instruct", help="Student model name") # or eg. unsloth/gemma-3-4b-it-unsloth-bnb-4bit
+    parser.add_argument("--student_name", type=str, default="google/gemma-3-4b-it", help="Student model name") # or eg. HuggingFaceTB/SmolLM-135M-Instruct if you're really compute-poor
     parser.add_argument("--teacher_name", type=str, default="meta-llama/Llama-3.3-70B-Instruct-Turbo-Free", help="Teacher model name")
     parser.add_argument("--device", type=str, default="mps", help="Device to use (cpu, cuda, mps)")
-    parser.add_argument("--num_questions", type=int, default=10, help="Number of questions")
+    parser.add_argument("--num_questions", type=int, default=100, help="Number of questions")
     parser.add_argument("--verbose", action="store_true", help="Print verbose output")
     
     args = parser.parse_args()
