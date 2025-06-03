@@ -137,13 +137,13 @@ Asterisks (*) denote particularly tricky implementations.
 - [x] Variational Autoencoders (VAE) `generative-models/train_vae.py` [[paper]](https://arxiv.org/abs/1312.6114)
    - [x] Train an autoencoder for reconstruction `generative-models/train_autoencoder.py` 
 - [ ] Neural Radiance Fields (NeRF)
-- [x] Denoising Diffusion Probablistic Models (DDPM) `generative-models/train_ddpm.py` [[paper]](https://arxiv.org/abs/2006.11239)
+- [x] Denoising Diffusion Probablistic Models* (DDPM) `generative-models/train_ddpm.py` [[paper]](https://arxiv.org/abs/2006.11239)
 - [x] Classifier-based diffusion guidance `generative-models/ddpm_classifier_guidance.py` [[paper]](https://arxiv.org/abs/2105.05233)
    - [x] Classifier-free diffusion guidance `generative-models/ddpm_classifier_free_guidance.py` [[paper]](https://arxiv.org/abs/2207.12598)
 - [x] Flow matching `generative-models/train_flow_matching.py` [[paper]](https://arxiv.org/abs/2210.02747)
 
 ### MLSys 
-- [x] GPU Communication Algorithms (scatter, gather, ring/tree allreduce) `mlsys/comms.py` [[reference]](https://developer.nvidia.com/nccl)
+- [x] GPU Communication Algorithms* (scatter, gather, ring/tree allreduce) `mlsys/comms.py` [[reference]](https://developer.nvidia.com/nccl)
 - [x] Distributed Data Parallel `mlsys/train_ddp.py` [[paper]](https://arxiv.org/pdf/2006.15704)
 - [ ] Tensor Parallel
 - [ ] Ring Attention (Context Parallel)
