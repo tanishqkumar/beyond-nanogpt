@@ -152,7 +152,7 @@ Asterisks (*) denote particularly tricky implementations.
 
 ### Evals
 
-- [ ] GLUE (old-school NLP)
+- [ ] BERT on SST-2 (old-school NLP)
 - [ ] GSM8k (generative)
 - [x] MMLU (multiple-choice) `evals/eval_mmlu.py` [[paper]](https://arxiv.org/abs/2009.03300)
 - [x] SimpleQA (LLM judge) `evals/eval_simpleqa.py` [[paper]](https://arxiv.org/pdf/2411.04368)
@@ -167,11 +167,12 @@ Asterisks (*) denote particularly tricky implementations.
 - [ ] Graph RAG
 
 ### Agents 
-- [ ] Scaffold to make an LLM into tool-use research agent
+- [ ] Scaffold to make an LLM use internet search to find answers
 - [ ] Simulate a simple society with language models
 - [ ] Use ReAct and Reflexion to make an LLM create a PR on GitHub 
 - [ ] Multi-agent debate system with critique and refinement
 - [ ] Use RLAIF to RL a deep-research agent end-to-end
+- [ ] Use unit tests and code analysis to RL a coding agent end-to-end
 
 ---
 
