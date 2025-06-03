@@ -160,7 +160,7 @@ Asterisks (*) denote particularly tricky implementations.
 
 ### RAG 
 - [ ] Train Small Embedding and Reranking Models
-- [ ] Hello Docs Q&A
+- [x] RAG 101: Retrieval on Q&A Answers
 - [ ] Multi-Hop Decomposition RAG
 - [ ] Self-Reranking Feedback Loop 
 - [ ] Sparse and Dense Retrieval 
