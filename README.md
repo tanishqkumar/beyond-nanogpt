@@ -155,7 +155,7 @@ Asterisks (*) denote particularly tricky implementations.
 - [ ] GLUE (old-school NLP)
 - [ ] GSM8k (generative)
 - [x] MMLU (multiple-choice) `evals/eval_mmlu.py` [[paper]](https://arxiv.org/abs/2009.03300)
-- [ ] SimpleQA (LLM judge)
+- [x] SimpleQA (LLM judge) `evals/eval_simpleqa.py` [[paper]](https://arxiv.org/pdf/2411.04368)
 - [ ] Design our own eval ("good taste")
 
 ### RAG 
