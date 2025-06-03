@@ -160,7 +160,7 @@ Asterisks (*) denote particularly tricky implementations.
 
 ### RAG 
 - [ ] Train Small Embedding and Reranking Models
-- [x] RAG 101: Retrieval on Q&A Answers
+- [x] RAG 101: Retrieval on Q&A Answers `rag/intro_rag.py` 
 - [ ] Multi-Hop Decomposition RAG
 - [ ] Self-Reranking Feedback Loop 
 - [ ] Sparse and Dense Retrieval 
