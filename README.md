@@ -167,12 +167,12 @@ Asterisks (*) denote particularly tricky implementations.
 - [ ] Graph RAG
 
 ### Agents 
-- [ ] Scaffold to make an LLM use internet search to find answers
-- [ ] Simulate a simple society with language models
-- [ ] Use ReAct and Reflexion to make an LLM create a PR on GitHub 
+- [ ] Let an LLM use internet search to find answers it doesn't know
+- [ ] A simple coding agent that can (search, run code, read and edit files)
+- [ ] A more sophisticated coding agent that can make PRs on GitHub 
+- [ ] Simulate a society with language models
 - [ ] Multi-agent debate system with critique and refinement
 - [ ] Use RLAIF to RL a deep-research agent end-to-end
-- [ ] Use unit tests and code analysis to RL a coding agent end-to-end
 
 
 ### Multimodality 
