@@ -168,8 +168,8 @@ Asterisks (*) denote particularly tricky implementations.
 
 ### Agents 
 - [x] Let an LLM use internet search for Q&A `agents/chat_search.py` 
-- [ ] Coding Agent
-  - [ ] A simple coding agent that can (search, run code, read and edit files)
+- Coding Agent
+  - [ ] Give the search LLM the ability to (run code, read and edit local files)
   - [ ] A more sophisticated agent that can make PRs on GitHub via ReAcT + Reflexion
   - [ ] Replace the API model with one RL'd on unit-tests and software tool use 
 - [ ] Simulate a society with language models
@@ -182,7 +182,7 @@ Asterisks (*) denote particularly tricky implementations.
 - [ ] Reimplement Flamingo
 - [ ] Train a Transformer on (image, audio, video) input 
 - [ ] Train an SSM on long-context DNA sequence completion 
-- [ ] Train a Transformer for financial time series forecasting 
+- [ ] Train a Transformer for financial time series
 
 ---
 
