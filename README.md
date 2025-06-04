@@ -177,6 +177,7 @@ Asterisks (*) denote particularly tricky implementations.
 
 ### Multimodality 
 - [ ] Reimplement CLIP 
+- [ ] Reimplement Flamingo
 - [ ] Train a Transformer on (image, audio, video) input 
 - [ ] Train an SSM on long-context DNA sequence completion 
 - [ ] Train a Transformer for financial time series forecasting 
