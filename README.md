@@ -170,8 +170,8 @@ Asterisks (*) denote particularly tricky implementations.
 - [x] Let an LLM use internet search for Q&A `agents/chat_search.py` 
 - [ ] Coding Agent
   - [ ] A simple coding agent that can (search, run code, read and edit files)
-  - [ ] A more sophisticated coding agent that can make PRs on GitHub 
-  - [ ] Replace the API base model with one RL'd against unit test feedback and compare agentic performance
+  - [ ] A more sophisticated agent that can make PRs on GitHub via ReAcT + Reflexion
+  - [ ] Replace the API model with one RL'd on unit-tests and software tool use 
 - [ ] Simulate a society with language models
 - [ ] Multi-agent debate system with critique and refinement
 - [ ] Use RLAIF to RL a deep-research agent by autograding browsing trajectories 
