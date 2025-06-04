@@ -174,6 +174,13 @@ Asterisks (*) denote particularly tricky implementations.
 - [ ] Use RLAIF to RL a deep-research agent end-to-end
 - [ ] Use unit tests and code analysis to RL a coding agent end-to-end
 
+
+### Multimodality 
+- [ ] Reimplement CLIP 
+- [ ] Train a Transformer on (image, audio, video) input 
+- [ ] Train an SSM on long-context DNA sequence completion 
+- [ ] Train a Transformer for financial time series forecasting 
+
 ---
 
 ## Notes
