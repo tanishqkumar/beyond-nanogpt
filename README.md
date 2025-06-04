@@ -167,12 +167,14 @@ Asterisks (*) denote particularly tricky implementations.
 - [ ] Graph RAG
 
 ### Agents 
-- [ ] Let an LLM use internet search to find answers it doesn't know
-- [ ] A simple coding agent that can (search, run code, read and edit files)
-- [ ] A more sophisticated coding agent that can make PRs on GitHub 
+- [x] Let an LLM use internet search for Q&A `agents/chat_search.py` 
+- [ ] Coding Agent
+  - [ ] A simple coding agent that can (search, run code, read and edit files)
+  - [ ] A more sophisticated coding agent that can make PRs on GitHub 
+  - [ ] Replace the API base model with one RL'd against unit test feedback and compare agentic performance
 - [ ] Simulate a society with language models
 - [ ] Multi-agent debate system with critique and refinement
-- [ ] Use RLAIF to RL a deep-research agent end-to-end
+- [ ] Use RLAIF to RL a deep-research agent by autograding browsing trajectories 
 
 
 ### Multimodality 
