@@ -1,0 +1,1 @@
+from riemann import riemann_sum\n\ndef f(x):\n    return x ** 2\n\nresult = riemann_sum(f, 0, 1, 100)\nprint(result)

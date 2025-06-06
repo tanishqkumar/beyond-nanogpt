@@ -1,0 +1,1 @@
+def riemann_sum(f, a, b, n):\n    h = (b - a) / n\n    return sum(f(a + i * h) for i in range(n))
