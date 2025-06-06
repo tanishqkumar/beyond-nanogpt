@@ -1,1 +1,0 @@
-# Riemann Test\n\nThis is a simple Python project that calculates the Riemann sum of a function.
