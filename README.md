@@ -169,9 +169,10 @@ Asterisks (*) denote particularly tricky implementations.
 ### Agents 
 - [x] Let an LLM use internet search for Q&A `agents/chat_search.py` 
 - Coding Agent
-  - [ ] Give the search LLM the ability to (run code, read and edit local files)
-  - [ ] A more sophisticated agent that can make PRs on GitHub via ReAcT + Reflexion
-  - [ ] Replace the API model with one RL'd on unit-tests and software tool use 
+   - [x] Tool use (search, run code, read/write files) & sandboxing for powerful tools
+   - [x] ReAct (iterated CoT with tool use in between)
+   - [x] Memory/context management distinguishing short vs long term memory 
+   - [x] Evaluate: can it make a correct PR end-to-end in reponse to a GitHub issue? 
 - [ ] Simulate a society with language models
 - [ ] Multi-agent debate system with critique and refinement
 - [ ] Use RLAIF to RL a deep-research agent by autograding browsing trajectories 
