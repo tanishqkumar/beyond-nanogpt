@@ -1,0 +1,1 @@
+AGENT_SCRATCH_DIR = "./agent_scratch/"

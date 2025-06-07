@@ -96,8 +96,13 @@ def get_page(url: str) -> str:
     return soup.get_text() + str(f'--'*10) + '\n'
 
 def get_search_results(query: str, top_k_shallow: int = 5, top_k_deep: int = 2, deep: bool = False) -> str: 
-    # google_search_key = TODO, get one from https://developers.google.com/custom-search/v1/overview
-    # search_engine_id = TODO, same as above 
+    # TODO, set these if you haven't 
+    google_search_key = os.environ.get('GOOGLE_SEARCH_KEY')
+    search_engine_id = os.environ.get('SEARCH_ENGINE_ID')
+    
+    if not google_search_key or not search_engine_id:
+        print("Error: Missing required environment variables GOOGLE_SEARCH_KEY and/or SEARCH_ENGINE_ID")
+        return None
     url = "https://www.googleapis.com/customsearch/v1"
     params = {
         'key': google_search_key, 
@@ -232,6 +237,8 @@ if __name__ == "__main__":
                         help="Use the larger 70B model instead of 8B")
     parser.add_argument("--huge", action="store_true",
                         help="Use the larger 405B model")
+    parser.add_argument("--deepseek", action="store_true",
+                        help="Use DeepSeekV3")
     parser.add_argument("--notools", action="store_true", 
                         help="Disable search tools")
     parser.add_argument("--verbose", action="store_true", 
@@ -241,7 +248,9 @@ if __name__ == "__main__":
     LLAMA_8B = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
     LLAMA_70B = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
     LLAMA_405B = "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo"
+    DEEPSEEK = "deepseek-ai/DeepSeek-V3"
     model_name = LLAMA_405B if args.huge else (LLAMA_70B if args.big else LLAMA_8B)
+    model_name = DEEPSEEK if args.deepseek else model_name
     
     client = Together()
     mem = ""
