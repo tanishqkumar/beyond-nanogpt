@@ -16,13 +16,14 @@ from tools.registry import ALL_TOOL_PROMPTS, ALL_TOOLS
 
 class Memory: 
     def __init__(self, client: Union[Together, Anthropic], init_mem: str = "", api_model_name: str = "meta-llama/Llama-3.3-70B-Instruct-Turbo"): 
-        self.global_mem = init_mem
-        self.local_tool_memory = ""
+        self.global_mem = init_mem  # persistent conversation history
+        self.local_tool_memory = ""  # temporary memory for current tool interaction session
         self.client = client 
         self.model_name = api_model_name
 
 
     def compress_global_mem(self, global_mem: str, client: Union[Together, Anthropic], model_name: str): 
+        # use llm to summarize long conversations to stay under context limits
         compress_user_prompt = COMPRESS_USER_PROMPT.format(
             transcript=global_mem, 
         )
@@ -34,6 +35,7 @@ class Memory:
         ) 
 
     def update_global_mem(self, model_name: str): 
+        # extract key insights from tool interactions and add to permanent memory
         update_mem_sysprompt = UPDATE_GLOBAL_MEM_PROMPT.format(
             tool_memory=self.local_tool_memory,     
         )
@@ -44,8 +46,9 @@ class Memory:
             system_prompt=update_mem_sysprompt, 
         )
 
+        # append tool session summary to global memory with special tags
         self.global_mem += "\n\n <internal_tool_use_summary>" + local_tool_memory_summary + "</internal_tool_use_summary> \n\n"
-        self.local_tool_memory = self.global_mem # reset it 
+        self.local_tool_memory = self.global_mem  # reset local memory to global state
 
     def show(self): 
         print(f'Memory is length {len(self.global_mem)} characters.')

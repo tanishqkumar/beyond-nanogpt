@@ -10,17 +10,17 @@ def api(
         system_prompt: str = "You are helpful language model assistant, designed to produce factual and correct responses to queries.", 
     ):
     try:
-        # Use API key from environment variable
+        # fallback to together if no client provided
         if client is None:
             api_key = os.getenv('TOGETHER_API_KEY')
             if not api_key:
                 raise ValueError("TOGETHER_API_KEY environment variable not set")
             client = Together(api_key=api_key)
         
-        # Handle Anthropic client
+        # anthropic has different api structure than together
         if isinstance(client, Anthropic):
             response = client.messages.create(
-                model="claude-4-sonnet-20250514",
+                model="claude-4-sonnet-20250514",  # hardcoded to latest claude model
                 max_tokens=4000,
                 system=system_prompt,
                 messages=[
@@ -32,9 +32,9 @@ def api(
             )
             return response.content[0].text
         
-        # Handle Together client
+        # together uses openai-compatible chat completions format
         response = client.chat.completions.create(
-            model=model_name,
+            model=model_name,  # model_name ignored for anthropic, used for together
             max_tokens=4000,
             messages=[
                 {
@@ -50,4 +50,4 @@ def api(
         return response.choices[0].message.content
     except Exception as e:
         print(f"API request failed: {e}")
-        return None
+        return None  # graceful degradation instead of crashing

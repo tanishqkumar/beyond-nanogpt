@@ -14,7 +14,7 @@ import shutil
 
 class RunCodeToolInput(BaseModel): 
     code: str 
-    language: str = "python"
+    language: str = "python"  # python or shell only
 
 class RunCodeToolOutput(BaseModel): 
     stdout: str = ""
@@ -22,9 +22,11 @@ class RunCodeToolOutput(BaseModel):
 
 
 def run_code(code: str, language: str) -> Tuple[str, str]:
+    # inherit environment but run in subprocess for isolation
     env = os.environ.copy()
     try: 
         if language == "python": 
+            # wrap user code in sandbox template that restricts imports
             code = PYTHON_SANDBOX_PROMPT.format(
                 code=code,
             )
@@ -33,11 +35,12 @@ def run_code(code: str, language: str) -> Tuple[str, str]:
                 ["python3", "-c", code], 
                 capture_output=True, 
                 text=True, 
-                timeout=10, 
+                timeout=10,  # prevent infinite loops
                 env=env,
             )
 
         elif language == "shell": 
+            # wrap shell commands in sandbox template
             code = SHELL_SANDBOX_PROMPT.format(
                 code=code,
             )
@@ -47,7 +50,7 @@ def run_code(code: str, language: str) -> Tuple[str, str]:
                 shell=True, 
                 capture_output=True, 
                 text=True, 
-                timeout=10, 
+                timeout=10,  # prevent infinite loops
                 env=env,
             )
         else:

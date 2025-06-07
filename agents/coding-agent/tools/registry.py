@@ -14,12 +14,13 @@ from prompts.tool_prompts import SEARCH_TOOL_PROMPT, RUN_CODE_TOOL_PROMPT, WRITE
 AGENT_SCRATCH_DIR = "./agent_scratch/"
 
 ALL_TOOLS = [
-    SearchTool(), # instantiate each so we can use tool in all_tools directly out of the box 
+    SearchTool(),  # instantiate each so we can iterate and call directly
     RunCodeTool(), 
     WriteFileTool(), 
     ReadFileTool(), 
 ]
 
+# parallel list of prompts that get injected into system prompt
 ALL_TOOL_PROMPTS = [
     SEARCH_TOOL_PROMPT,
     RUN_CODE_TOOL_PROMPT, 

@@ -24,10 +24,11 @@ def get_final_output(res: str) -> str:
     pattern = r'<output>(.*?)</output>'
     matches = re.findall(pattern, res, re.DOTALL)
     if matches:
-        return matches[-1].strip()
+        return matches[-1].strip()  # take the last output tag in case there are multiple
     return "[RETURNING EMPTY STRING BECAUSE RES DIDNT CONTAIN OUTPUT]"
 
 def finalize(res: str, memory: Memory, client: Together, model_name: str) -> str: 
+    # final cleanup pass to extract clean output from the tool interaction mess
     finalizer_prompt = FINALIZER_SYSTEM_PROMPT.format(
         transcript=memory.local_tool_memory, 
     ) 
@@ -37,6 +38,7 @@ def finalize(res: str, memory: Memory, client: Together, model_name: str) -> str
             system_prompt=finalizer_prompt, 
         ) 
     
+    # update global memory with a summary of what happened during tool use
     memory.update_global_mem(model_name)
     return get_final_output(out)
 
@@ -47,26 +49,30 @@ def back_and_forth_with_tools(
         model_name: str,
         use_tools: bool = True,
         verbose: bool = True,
-        MAX_NUM_TOOL_CALLS: int = 100, 
+        MAX_NUM_TOOL_CALLS: int = 100,  # prevent infinite loops
     ): 
     if use_tools:
         system_prompt = get_system_prompt(memory.global_mem)
     else:
         system_prompt = "You are helpful language model assistant."
     
+    # initial response from the model
     res = api(user_prompt, 
                 client, 
                 model_name=model_name,
                 system_prompt=system_prompt, 
             ) 
     
+    # if no tools needed or tools disabled, return immediately
     if not use_tools or not contains_tool_calls(res):
         return get_final_output(res)
         
+    # initialize tool memory with global context
     memory.local_tool_memory = memory.global_mem + "\n \n" + "Tool Interaction Memory: \n "
     res_after_tools = res
 
     calls = 0
+    # keep going until model stops requesting tools or gives final output
     while contains_tool_calls(res_after_tools) and (not '<output>' in res_after_tools): 
         if verbose:
             print(f'--'*20)
@@ -74,14 +80,17 @@ def back_and_forth_with_tools(
             print(res_after_tools)
             print(f'--'*20)
         
-        # todo: invoke llm for fixing?
-        res_after_tools = check_and_fix_tool_calls(res_after_tools) # clean it, eg. by \n -> \\n for json parsing 
+        # clean up malformed json in tool calls (newlines, quotes, etc)
+        res_after_tools = check_and_fix_tool_calls(res_after_tools) 
         
+        # execute all tool requests in the response
         for tool in ALL_TOOLS:
-            res_after_tools = tool.call(res_after_tools) # replaces all tool requests with tool outputs 
+            res_after_tools = tool.call(res_after_tools)  # replaces <tool_request> with <tool_output>
         
-        memory.local_tool_memory += res_after_tools + "\n\n\n" # contains all og ctxt but also a ton of garbage from web searches 
+        # accumulate all tool interactions for context
+        memory.local_tool_memory += res_after_tools + "\n\n\n" 
         
+        # ask model to reflect on tool results and decide next steps
         reflect_or_finalize_prompt = REFLECT_OR_FINALIZE_SYSTEM_PROMPT.format(
             transcript=memory.local_tool_memory,
             tool_info="\n".join([t.prompt for t in ALL_TOOLS])
@@ -97,7 +106,7 @@ def back_and_forth_with_tools(
         if verbose: 
             print(res_after_tools)
 
-        # got what we need, early exit 
+        # model decided it's done, extract final answer
         if not contains_tool_calls(res_after_tools):  
             return finalize(res_after_tools, memory, client, model_name)
 
@@ -114,6 +123,7 @@ def back_and_forth_with_tools(
     )
 
 def get_system_prompt(global_mem: str) -> str: 
+    # inject tool descriptions into system prompt so model knows what's available
     tool_info_prompt = "\n".join([t.prompt for t in ALL_TOOLS])
     
     return FULL_SYSTEM_PROMPT.format(
@@ -122,6 +132,7 @@ def get_system_prompt(global_mem: str) -> str:
             )
 
 def wipe_agent_scratch(): 
+    # clean slate for each session to avoid file conflicts
     if os.path.exists(AGENT_SCRATCH_DIR):
         shutil.rmtree(AGENT_SCRATCH_DIR)
     
@@ -147,6 +158,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
+    # default to the balanced 70B model
     model_name = "meta-llama/Llama-3.3-70B-Instruct-Turbo" 
     if args.small:
         model_name = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
@@ -162,7 +174,7 @@ if __name__ == "__main__":
 
     memory = Memory(client, "", model_name)
 
-    wipe_agent_scratch()  # Uncomment if you want to clear on startup
+    wipe_agent_scratch()  # start fresh each time
 
     while True: 
         prompt = input("You: ")
@@ -172,6 +184,7 @@ if __name__ == "__main__":
         elif "print_mem()" in prompt: 
             memory.show()
         else: 
+            # add user message to conversation history
             memory.global_mem += "\nUser: " + prompt + "\n"
             res = back_and_forth_with_tools(
                 prompt, 
@@ -180,13 +193,14 @@ if __name__ == "__main__":
                 model_name=model_name,
                 use_tools=not args.notools,
                 verbose=args.verbose,
-            ) # includes parsing tools until no tool calls found 
+            ) 
             if res is not None:
                 print(f"AI: {res}")
+                # add ai response to conversation history
                 memory.global_mem += "\n AI:" + res + "\n"
 
-                # if global_mem is very long, hit the api behind the scenes to summarize and compress it and use that as new global_mem. 
-                if len(memory.global_mem) > 200_000: # ~50k tokens 
+                # compress memory when it gets too long to avoid context limits
+                if len(memory.global_mem) > 200_000:  # roughly 50k tokens
                     if args.verbose:
                         print(f'[System Message: Conversation has gone long, so transcript of past messages was summarized. Proceed...]')
                     memory.compress_global_mem(memory.global_mem, client, model_name)

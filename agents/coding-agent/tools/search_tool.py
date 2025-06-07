@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 from prompts.tool_prompts import SEARCH_TOOL_PROMPT
 from pydantic import BaseModel 
 
-# parses and cleans html from the url with BeautifulSoup and returns text on the page 
+# scrapes full page content for deep search mode
 def get_page(url: str) -> str: 
     res = requests.get(url)
     html = res.text 
@@ -16,6 +16,7 @@ def get_page(url: str) -> str:
     return soup.get_text() + str(f'--'*10) + '\n'
 
 def get_search_results(query: str, top_k: int = 5, deep: bool = False, max_len: int = 20_000) -> Tuple[List[str], bool]: 
+    # requires google custom search api setup
     GOOGLE_SEARCH_KEY = os.environ.get('GOOGLE_SEARCH_KEY')
     SEARCH_ENGINE_ID = os.environ.get('SEARCH_ENGINE_ID')
     
@@ -38,7 +39,7 @@ def get_search_results(query: str, top_k: int = 5, deep: bool = False, max_len: 
         items = data.get('items', [])
         
         if not deep:
-            # Shallow search - return snippets
+            # shallow mode: just return google's snippets (fast)
             for i, item in enumerate(items[:top_k], 1):  
                 title = item.get('title', 'No title')
                 link = item.get('link', 'No link')
@@ -51,14 +52,14 @@ def get_search_results(query: str, top_k: int = 5, deep: bool = False, max_len: 
                 results.append(result)
                 total_len += len(result)
         else:
-            # Deep search - scrape full page content
+            # deep mode: scrape full page content (slow but comprehensive)
             for i, item in enumerate(items[:top_k], 1):  
                 page_url = item.get('link', None)
                 if page_url:
                     try:
                         page_content = get_page(page_url)
                         if total_len + len(page_content) > max_len:
-                            # Truncate if needed
+                            # truncate to stay under limit
                             remaining_space = max_len - total_len
                             if remaining_space > 0:
                                 results.append(page_content[:remaining_space])
@@ -78,9 +79,9 @@ def get_search_results(query: str, top_k: int = 5, deep: bool = False, max_len: 
 
 class SearchToolInput(BaseModel): 
     query: str 
-    top_k: int = 3 # how many results we want 
-    deep: bool = False # shallow or deep search 
-    max_len: int = 20_000 # max num of characters we want in response we get back 
+    top_k: int = 3  # how many search results to return
+    deep: bool = False  # shallow (snippets) vs deep (full pages)
+    max_len: int = 20_000  # character limit to avoid overwhelming context
 
 class SearchToolOutput(BaseModel): 
     query: str
