@@ -167,8 +167,8 @@ Asterisks (*) denote particularly tricky implementations.
 - [ ] Graph RAG
 
 ### Agents 
-- [x] Let an LLM use internet search for Q&A `agents/chat_search.py` 
-- Coding Agent
+- [x] Let an LLM use internet search for Q&A `agents/basic-search-use` 
+- Coding Agent `agents/coding-agent`
    - [x] Tool use (search, run code, read/write files) & sandboxing for powerful tools
    - [x] ReAct (iterated CoT with tool use in between)
    - [x] Memory/context management distinguishing short vs long term memory 
