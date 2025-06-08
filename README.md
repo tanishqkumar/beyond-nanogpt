@@ -168,11 +168,11 @@ Asterisks (*) denote particularly tricky implementations.
 
 ### Agents 
 - [x] Let an LLM use internet search for Q&A `agents/basic-search-use` 
-- Coding Agent `agents/coding-agent`
-   - [x] Tool use (search, run code, read/write files) & sandboxing for powerful tools
-   - [x] ReAct (iterated CoT with tool use in between)
-   - [x] Memory/context management distinguishing short vs long term memory 
-   - [x] Evaluate: can it make a correct PR end-to-end in reponse to a GitHub issue? 
+- [x] Coding Agent `agents/coding-agent`
+   - [x] Tool use (search, run code, read/write files) & sandboxing for powerful tools [`/tools`]
+   - [x] ReAct (iterated CoT with tool use in between) `agent.py` 
+   - [x] Memory/context management distinguishing short vs long term memory `memory.py` 
+   - [x] Evaluate: can it make a correct PR end-to-end in reponse to a GitHub issue? [[demo]](https://x.com/tanishqkumar07/status/1931709892236116293)
 - [ ] Simulate a society with language models
 - [ ] Multi-agent debate system with critique and refinement
 - [ ] Use RLAIF to RL a deep-research agent by autograding browsing trajectories 
@@ -181,7 +181,7 @@ Asterisks (*) denote particularly tricky implementations.
 ### Multimodality 
 - [ ] Reimplement CLIP 
 - [ ] Reimplement Flamingo
-- [ ] Train a Transformer on (image, audio, video) input 
+- [ ] Train a Transformer on (audio, video, text) input 
 - [ ] Train an SSM on long-context DNA sequence completion 
 - [ ] Train a Transformer for financial time series
 
@@ -192,8 +192,9 @@ Asterisks (*) denote particularly tricky implementations.
 - The codebase will generally work with either a CPU or GPU, but most implementations basically require 
 a GPU as they will be untenably slow otherwise. I recommend either a consumer laptop with GPU, paying for Colab/Runpod, 
 or simply asking a compute provider or local university for a compute grant if those are out of 
-budget (this works surprisingly well, people are very generous). 
-- Most `.py` scripts take in `--verbose` and `--wandb` as command line arguments when you run them, to enable detailed logging and sending logs to wandb, respectively. Feel free to hack these to your needs. 
+budget (this works surprisingly well, people are very generous). Obvious exceptions like data/tensor parallel require 
+multi-GPU nodes. 
+- All `.py` scripts take in `--verbose` and `--wandb` as command line arguments when you run them. Feel free to hack these to your needs. 
 - Feel free to email me at [tanishq@stanford.edu](mailto:tanishq@stanford.edu) with feedback, implementation/feature requests, 
 and to raise any bugs as GitHub issues. I am committing to implementing new techniques people want over the next month, and 
 welcome contributions or bug fixes by others. 
