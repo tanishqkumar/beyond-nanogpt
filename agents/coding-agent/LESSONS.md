@@ -18,11 +18,9 @@ agentic programmic is about. It an agent is just an "context-LLM" loop, in essen
     [context, system prompt] of an LLM call to see why it's failing when you'd expect it to work. 
     - Obviously the context problem should "ultimately" be solved with a learned end to end solution, but knowing when to learn something end to end vs use an "unreasonably effective" programming pattern/hardcoding something that works much better is difficult. 
 
-- You forget it needs tool formatting on follow-ups, or miss that while the model generates code assuming it's navigating directories in the transcript, every execution actually happens from agent_scratch. Classic case of "where it thinks it is vs where it actually is."
 
-- You can feel the gulf between models that were post-trained for tool use versus those that weren't. Llama 3.3 70B demolishes any 3.1 model, including the 405B behemoth.
-
-- Despite this clear dependence on pre/post-training for agentic behavior, there's something to treating LLMs as black-box token predictors regardless of architecture or training. Agents feel like a genuinely new abstraction layer, almost orthogonal to everything in ML so far. You don't need to understand anything beyond "feed it tokens, get coherent responses with 99% reliability" when programming these "wrappers." I can see why 
+- You can feel the gulf between models that were post-trained for tool use versus those that weren't. Llama 3.3 70B demolishes any 3.1 model, including the 405B behemoth. Seeing how different base models have different strengths and weaknesses and excel or fail at different classes of agentic tasks eg. because of small design decision related to their pretraining corpora is pretty interesting. 
+  - On the other hand, there's something to treating LLMs as black-box token predictors regardless of architecture or training. Agents feel like a genuinely new abstraction layer, almost orthogonal to everything in ML so far. You don't need to understand anything beyond "feed it tokens, get coherent responses with 99% reliability" when programming these "wrappers." I can see why 
 good software folks with little ML knowledge thrive at this level of abstraction. 
     - This definitely feels like a new programming paradigm: neural-statistical-programmatic. Almost like writing probabilistic programs. You can sense the need for better abstractions that weave LLMs throughout, things like DSPy. Programming deterministic algorithms never felt quite like this.
 
