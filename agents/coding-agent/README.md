@@ -1,11 +1,12 @@
 # Coding Agent
 
-An AI-powered coding assistant that uses only vanilla python and 
-LLM completions to be able to add features, fix bugs, make PRs end to end on GitHub repos. 
-Includes tools allowing it to read/write files, execute code, search the web, sandboxed environments, 
-long and short term memory, etc. Demonstrates the core logic requires to go from 
-"base LLM" to "autonomous system in the wild," as well as key eng/design decisions that have 
-to be made on the way. 
+A minimal AI-powered coding assistant that uses only vanilla python and 
+LLM completions. The agent can make entire apps, add features, fix bugs, make PRs end to end on simple GitHub repos. The repo includes logic defining tool use allowing it to read/write files, execute code, search the web, sandboxed environments, long and short term memory, etc. 
+
+**This repository demonstrates the core logic requires to go from 
+"base LLM" to "autonomous system in the wild,"** as well as key engineering/design decisions that have 
+to be made on the way. We do not use any features of the LLM API besides sampling from LLMs given a 
+prompt. 
 
 ## Installation
 
@@ -76,7 +77,7 @@ agents/coding-agent/
 └── agent_scratch/                # Isolated workspace for file operations (auto-created)
 ```
 
-## Key Architecture
+## Key Architectural Details 
 
 - **Multi-LLM Support**: Seamlessly switches between Together AI (Llama models, DeepSeek) and Anthropic (Claude)
 - **Tool-Augmented Generation**: Iterative tool calling with reflection until task completion
@@ -102,4 +103,4 @@ The agent includes built-in GitHub integration for version control operations. W
 - Pull updates
 - Manage branches
 
-Git operations are executed directly through the run_code tool using actual git commands, not simulated.
+Git operations are executed directly through the run_code tool using actual git commands.
