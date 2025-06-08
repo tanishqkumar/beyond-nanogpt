@@ -1,3 +1,4 @@
+from __future__ import annotations 
 import re
 import argparse
 import json  
@@ -9,14 +10,13 @@ from together import Together
 from anthropic import Anthropic 
 
 from tools.search_tool import SearchToolInput, SearchToolOutput, SearchTool 
-from global_constants import AGENT_SCRATCH_DIR
 from tools.tool_validation_utils import contains_tool_calls, check_and_fix_tool_calls
 from memory import Memory 
 from api import api 
 
 from prompts.system_prompts import BASE_SYSTEM_PROMPT, FULL_SYSTEM_PROMPT, FINALIZER_SYSTEM_PROMPT, REFLECT_OR_FINALIZE_SYSTEM_PROMPT
 from prompts.memory_prompts import COMPRESS_SYSTEM_PROMPT, COMPRESS_USER_PROMPT, UPDATE_GLOBAL_MEM_PROMPT
-from tools.registry import ALL_TOOL_PROMPTS, ALL_TOOLS
+from tools.registry import ALL_TOOL_PROMPTS, ALL_TOOLS, AGENT_SCRATCH_DIR
 
 
 # get the last occurrence
@@ -77,7 +77,7 @@ def back_and_forth_with_tools(
         if verbose:
             print(f'--'*20)
             print(f'Res after tools: ')
-            print(res_after_tools)
+            print(clean_res_credentials(res_after_tools))
             print(f'--'*20)
         
         # clean up malformed json in tool calls (newlines, quotes, etc)
@@ -104,7 +104,7 @@ def back_and_forth_with_tools(
         )
         
         if verbose: 
-            print(res_after_tools)
+            print(clean_res_credentials(res_after_tools))
 
         # model decided it's done, extract final answer
         if not contains_tool_calls(res_after_tools):  
@@ -130,6 +130,28 @@ def get_system_prompt(global_mem: str) -> str:
                 transcript=global_mem, 
                 tool_info=tool_info_prompt, 
             )
+
+
+def clean_res_credentials(res: str) -> str: 
+    cleaned_res = res
+    
+    # Get credentials from environment variables
+    github_username = os.getenv("GITHUB_USERNAME", "")
+    github_pat = os.getenv("GITHUB_PAT", "")
+    github_email = os.getenv("GITHUB_EMAIL", "")
+    github_noreply_email = os.getenv("GITHUB_NOREPLY_EMAIL", "")
+    
+    # Replace actual values with variable names to avoid exposing credentials
+    if github_username:
+        cleaned_res = cleaned_res.replace(github_username, "${GITHUB_USERNAME}")
+    if github_pat:
+        cleaned_res = cleaned_res.replace(github_pat, "${GITHUB_PAT}")
+    if github_email:
+        cleaned_res = cleaned_res.replace(github_email, "${GITHUB_EMAIL}")
+    if github_noreply_email:
+        cleaned_res = cleaned_res.replace(github_noreply_email, "${GITHUB_NOREPLY_EMAIL}")
+    
+    return cleaned_res
 
 def wipe_agent_scratch(): 
     # clean slate for each session to avoid file conflicts

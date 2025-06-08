@@ -1,6 +1,11 @@
 # Coding Agent
 
-An AI-powered coding assistant that combines multiple LLM providers with a comprehensive tool system for code generation, file manipulation, and web search capabilities.
+An AI-powered coding assistant that uses only vanilla python and 
+LLM completions to be able to add features, fix bugs, make PRs end to end on GitHub repos. 
+Includes tools allowing it to read/write files, execute code, search the web, sandboxed environments, 
+long and short term memory, etc. Demonstrates the core logic requires to go from 
+"base LLM" to "autonomous system in the wild," as well as key eng/design decisions that have 
+to be made on the way. 
 
 ## Installation
 
@@ -10,11 +15,11 @@ pip install together anthropic pydantic
 
 ## API Keys & Credentials
 
-Set the required environment variables (only need one LLM provider):
+Set the required environment variables
 
 ```bash
-# LLM Provider (choose one)
-export TOGETHER_API_KEY="your_together_api_key"
+# inference provider (choose one, or add OpenRouter/OpenAI etc)
+export TOGETHER_API_KEY="your_together_api_key" # default is L3-70B hosted on Together AI 
 export ANTHROPIC_API_KEY="your_anthropic_api_key"  # Optional, only if using --anthropic
 
 # GitHub Integration (optional, to give agent version control features)
@@ -22,6 +27,10 @@ export GITHUB_USERNAME="your_github_username"
 export GITHUB_PAT="your_github_personal_access_token"
 export GITHUB_EMAIL="your_email@example.com"
 export GITHUB_NOREPLY_EMAIL="your_username@users.noreply.github.com"
+
+# Google Search API (required for web search tool in @search_tool.py)
+export GOOGLE_SEARCH_KEY="your_google_custom_search_api_key"
+export SEARCH_ENGINE_ID="your_google_custom_search_engine_id"
 ```
 
 ## Usage
@@ -30,7 +39,7 @@ export GITHUB_NOREPLY_EMAIL="your_username@users.noreply.github.com"
 python agent.py [options]
 ```
 
-**Default:** Llama 3.3 70B Instruct Turbo with tools enabled
+**Default:** Llama 3.3 70B Instruct 
 
 ### Options
 
@@ -40,7 +49,7 @@ python agent.py [options]
 | `--deepseek` | Use DeepSeek V3 model |
 | `--huge` | Use Llama 3.1 405B model |
 | `--anthropic` | Use Claude-4 Sonnet |
-| `--notools` | Disable tool usage |
+| `--notools` | Disable our tool logic (kills perf) |
 | `--verbose` | Enable detailed output (agent thoughts) |
 
 ## File Structure

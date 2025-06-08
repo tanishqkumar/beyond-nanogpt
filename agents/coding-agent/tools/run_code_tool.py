@@ -24,6 +24,9 @@ class RunCodeToolOutput(BaseModel):
 def run_code(code: str, language: str) -> Tuple[str, str]:
     # inherit environment but run in subprocess for isolation
     env = os.environ.copy()
+    
+    from tools.registry import AGENT_SCRATCH_DIR
+    cwd = os.path.abspath(AGENT_SCRATCH_DIR)
     try: 
         if language == "python": 
             # wrap user code in sandbox template that restricts imports
@@ -37,6 +40,7 @@ def run_code(code: str, language: str) -> Tuple[str, str]:
                 text=True, 
                 timeout=10,  # prevent infinite loops
                 env=env,
+                cwd=cwd,
             )
 
         elif language == "shell": 
@@ -52,6 +56,7 @@ def run_code(code: str, language: str) -> Tuple[str, str]:
                 text=True, 
                 timeout=10,  # prevent infinite loops
                 env=env,
+                cwd=cwd,
             )
         else:
             return "", f"Unsupported language: {language}"

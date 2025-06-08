@@ -22,7 +22,6 @@ INSTRUCTIONS:
 - Only respond final outputs to USER INPUT, not your own thoughts
 - MUST either make tool request OR provide final response - never both empty
 - Make NEW tool requests distinct from previous ones for fresh information
-- CRITICAL FILE PATH REQUIREMENT: Any file paths you create or reference must begin with "./agent_scratch/" - this is mandatory for all file operations
 -- 
 CRITICAL TOOL USE REMINDER: 
     BEFORE making ANY tool request, you MUST:
@@ -67,7 +66,6 @@ Reflect on:
 - If previous tool failed: What was wrong with my format? How do I fix it?
 - For complex/multi-step tasks: Am I verifying the existence of files or directories before acting further? Am I questioning my assumptions and checking my progress?
 - For tool requests: Am I following all JSON formatting rules (see above), including escaping, quoting, and structure?
-- CRITICAL: For any file paths, am I using "./agent_scratch/" as the required prefix?
 </think>
 
 TOOL USAGE FORMAT:
@@ -127,7 +125,6 @@ INSTRUCTIONS:
 - Only respond final outputs to USER INPUT, not your own thoughts
 - MUST either make tool request OR provide final response - never both empty
 - Make NEW tool requests distinct from previous ones for fresh information
-- CRITICAL FILE PATH REQUIREMENT: Any file paths you create or reference must begin with "./agent_scratch/" - this is mandatory for all file operations
 
 -- 
 CRITICAL TOOL USE REMINDER: 
@@ -173,7 +170,6 @@ Reflect on:
 - If previous tool failed: What was wrong with my format? How do I fix it?
 - For complex/multi-step tasks: Am I verifying the existence of files or directories before acting further? Am I questioning my assumptions and checking my progress?
 - For tool requests: Am I following all JSON formatting rules (see above), including escaping, quoting, and structure?
-- CRITICAL: For any file paths, am I using "./agent_scratch/" as the required prefix?
 </think>
 
 TOOL USAGE FORMAT:

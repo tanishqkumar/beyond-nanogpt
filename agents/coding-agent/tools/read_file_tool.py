@@ -22,7 +22,13 @@ class ReadFileToolOutput(BaseModel):
 def read_file(path: str) -> Tuple[bool, str]:
     try:
         # Normalize the path and ensure it's relative or absolute as given
-        normalized_path = os.path.normpath(path)
+        # normalized_path = os.path.normpath(path)
+        clean_path = path.lstrip('./')
+        from tools.registry import AGENT_SCRATCH_DIR
+        # Build the full path within agent_scratch
+        full_path = os.path.join(AGENT_SCRATCH_DIR, clean_path)
+        normalized_path = os.path.normpath(full_path)
+        
         # Prevent path traversal to protected directories
         protected_dirs = ['/etc', '/usr', '/bin', '/sbin', '/sys', '/proc', '/dev']
         abs_path = os.path.abspath(normalized_path)
