@@ -1,44 +1,21 @@
-- most issues are about not being in model's pov 
-  - not giving tool formatting on follow updates
-  - not realizing every run code is done from agent_scratch but context shows 
-    model generating code the transcript, incl. cd to different directories, so mismatch between 
-    where it thinks it is vs where it actually is 
+## Some Lessons from Building My First Agent
 
-- you can def feel the diff bw models post-trained well for tool use etc vs those not. 
-    L3.3 70b >> any 3.1 models, incl 405b 
-- despite this clear dependence bw pre/post training vs actual agentic use, does feel amazing we can 
-black box LLMs as just token predictors indep of arch or training, so agents do feel like a 
-"new level of abstraction" that is almost orthogonal to all of ML so far (ie. you don't need to know anything 
-besides that they'll reply to your query with 99% acc)
-- tool use and capitalism -- didn't appreciate how deep and general the notion of tool-use is -- 
-many laugh when sama says "just improving tool use is enough" -- but i don't think they understand 
-how broad the notion of "tool" is -- really, the right definition is it's any short sequence of tokens 
-st. the program you replace those with in the resulting hybrid-neural-program-system increases 
-EV of the system (in an RL sense) -- its basically anything you can black box. a great and useful 
-entrepreneur who creates lots of new and valuable things has in some sense mastered tool use 
-(what its comparative advantage is vs that of other people and machines) and so is very good at 
-delegating/commanding while using its own intelligence in a comparative advantage sort of way.
-    - eg. model should be able to make its own tools. could be programmatic subroutines it executes to make 
-    its own life easier in future, or could even be finetuning a small LM on a custom dataset it creates 
-    to be able to delegate an annoying task it keeps getting wrong (like someone hiring a specialist). 
-    - the ability to define tools this way as "anything you can blackbox that will make your life easier" 
-    means anything can and should be a tool call, so that the problem of intelligence reduces to 
-    being a good free-range capitalist: identifying and creating people and systems with comparative 
-    advantage, and push them to their limit as an intelligent manager and delegator. 
-    - i can definitely see a future where an 8B model is enough, and its own weights/intelligence 
-        are only ever used as "glue" in between lots of searches/tool calls, or to create new tools 
-        for itself in the future. knowledge of obscure facts definitely shouldn't take up 
-        model capacity, that's a waste, it should instead be spent on "learning to be a good 
-        capitalist" and then factual queries can just be looked up with a search tool. 
+- Most issues stem from losing the model's perspective—forgetting it needs tool formatting on follow-ups, or missing that while the model generates code assuming it's navigating directories in the transcript, every execution actually happens from agent_scratch. Classic case of "where it thinks it is vs where it actually is."
 
+- You can absolutely feel the gulf between models that were post-trained for tool use versus those that weren't. Llama 3.3 70B demolishes any 3.1 model, including the 405B behemoth.
 
+- Despite this clear dependence on pre/post-training for agentic behavior, there's something magical about treating LLMs as black-box token predictors regardless of architecture or training. Agents feel like a genuinely new abstraction layer—almost orthogonal to everything in ML so far. You don't need to understand anything beyond "feed it tokens, get coherent responses with 99% reliability."
 
-- does feel like a new programming paradigm that is now neural-statistical-programmatic, ie. 
-almost like writing probabilistic programs, and can see the need for better programming abstractions 
-that involve LLMs in there eg. dspy -- programming a deterministic algorithm has never felt this way. 
+- Tool use and capitalism—I didn't grasp how profound and general the concept of tool-use really is. People scoff when Altman says "just improving tool use is enough," but they're missing how expansive "tool" actually is. The right definition: any short token sequence you can replace in your hybrid-neural-program-system that increases expected value. Basically anything you can black-box.
 
-- lots of eng edge cases, eg. need to get json in precise format incl escaping things in a particular way, 
-so need to catch malformed json and algorithmically fix common mistakes 
-- system prompts can easily be thousands of tokens even just for detailed tool use instructions 
-- core problem is one of context management and how to balance making things learned end to end vs 
-"unreasonably effective" hacks
+- A brilliant entrepreneur who creates valuable things has, in essence, mastered tool use—understanding comparative advantage and excelling at delegation while deploying their intelligence strategically. The model should be able to craft its own tools: programmatic subroutines for future efficiency, or even fine-tuning smaller models on custom datasets to handle tasks it keeps botching (like hiring a specialist).
+
+- This "anything you can black-box to make life easier" definition means everything should be a tool call. Intelligence reduces to being a savvy free-range capitalist: identifying and creating systems with comparative advantage, then managing them intelligently.
+
+- I can envision a future where an 8B model suffices, using its weights purely as "glue" between searches and tool calls, or to forge new tools for itself. Cramming obscure facts into model capacity is wasteful—better to spend those parameters "learning to be a good capitalist" and just look up facts with search tools.
+
+- This feels like a new programming paradigm: neural-statistical-programmatic. Almost like writing probabilistic programs. You can sense the need for better abstractions that weave LLMs throughout—like DSPy. Programming deterministic algorithms never felt quite like this.
+
+- Engineering is full of gnarly edge cases: JSON needs precise formatting with specific escaping, so you're constantly catching malformed output and algorithmically patching common mistakes.
+
+- System prompts balloon to thousands of tokens just for detailed tool instructions. The core challenge becomes context management—balancing end-to-end learning against "unreasonably effective" hacks.
