@@ -153,7 +153,7 @@ Asterisks (*) denote particularly tricky implementations.
 ### Evals
 
 - [ ] BERT on SST-2 (old-school NLP)
-- [x] GSM8k (generative)
+- [x] GSM8k (generative) `evals/eval_gsm8k.py` [[paper]](https://arxiv.org/pdf/2110.14168)
 - [x] MMLU (multiple-choice) `evals/eval_mmlu.py` [[paper]](https://arxiv.org/abs/2009.03300)
 - [x] SimpleQA (LLM judge) `evals/eval_simpleqa.py` [[paper]](https://arxiv.org/pdf/2411.04368)
 - [ ] Design our own eval ("good taste")
