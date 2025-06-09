@@ -7,7 +7,7 @@ which tests arithmetic ability.
 
 Key architectural decisions:
 - Uses in-context learning with examples provided via PROMPT_TEMPLATE
-- Leverages transformers library for model loading (defaults to Llama-3.2-1B)
+- Leverages transformers library for model loading (defaults to Llama-3.2-3B)
 - Extracts numerical answers using regex pattern matching on "#### answer" format
 - Handles tokenizer padding token setup for generation
 - Implements batch processing with DataLoader for efficient evaluation
@@ -37,7 +37,7 @@ Question:
 Answer: 
 """
 
-def get_model_tokenizer(name: str = "meta-llama/Llama-3.2-1B") -> Tuple[AutoModelForCausalLM, AutoTokenizer]: 
+def get_model_tokenizer(name: str = "meta-llama/Llama-3.2-3B") -> Tuple[AutoModelForCausalLM, AutoTokenizer]: 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = AutoModelForCausalLM.from_pretrained(name)
     model = model.to(device)
@@ -97,7 +97,7 @@ def get_icl_examples(test: Dataset, num_fewshot: int = 8) -> Tuple[str, Dataset]
     num_fewshot_lst = test.select(range(len(test)-num_fewshot, len(test)))
     test = test.select(range(len(test)-num_fewshot))
 
-    # Extract question-answer pairs and format them properly
+    # format the list of examples properly so we can slot this right into a prompt 
     examples = []
 
     for q, a in zip(num_fewshot_lst['question'], num_fewshot_lst['answer']):
@@ -107,8 +107,8 @@ def get_icl_examples(test: Dataset, num_fewshot: int = 8) -> Tuple[str, Dataset]
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate GSM8K performance")
-    parser.add_argument("--model", type=str, default="meta-llama/Llama-3.2-1B", help="Model to eval")
-    parser.add_argument("--batch_size", type=int, default=32, help="Batch size for evaluation")
+    parser.add_argument("--model", type=str, default="meta-llama/Llama-3.2-3B", help="Model to eval")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size for evaluation")
     parser.add_argument("--num_fewshot", type=int, default=8, help="Number of few-shot examples")
     parser.add_argument("--num_batches", type=int, default=None, help="Number of batches to evaluate (default: all)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
