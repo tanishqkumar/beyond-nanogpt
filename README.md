@@ -122,10 +122,10 @@ Asterisks (*) denote particularly tricky implementations.
       - [x] MCTS for move search `mcts.py`
       - [x] Self-play `train.py`
       - [ ] Dynamic batching and multiprocessing `mcts.py`
-- LLMs
+- LLMs `rl/llms`
    - [ ] RLHF a base model with UltraFeedback 
    - [ ] DPO a base model with UltraFeedback
-   - [ ] GRPO for reasoning: outcome reward on MATH
+   - [x] GRPO for reasoning: outcome reward on math `train_grpo_gsm.py` [[paper]](https://arxiv.org/pdf/2402.03300)
    - [ ] RL an LLM to match output of a calculator program 
    - [ ] RL a VLM to pass captchas
    - [ ] RL an LLM to write good jokes 
