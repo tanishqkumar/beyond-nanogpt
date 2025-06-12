@@ -338,7 +338,7 @@ def eval_model(
 
 def main():
     parser = argparse.ArgumentParser(description="Train a language model using GRPO on GSM8K dataset", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--model_name", type=str, default="meta-llama/Llama-3.2-1B-Instruct", help="Name of the model to load from HuggingFace") # meta-llama/Llama-3.2-1B-Instruct
+    parser.add_argument("--model_name", type=str, default="meta-llama/Llama-3.2-1B-Instruct", help="Name of the model to load from HuggingFace")
     parser.add_argument("--G", type=int, default=16, help="Number of completions per prompt (group size)")
     parser.add_argument("--batch_size", type=int, default=16, help="Total batch size for training")
     parser.add_argument("--beta", type=float, default=1e-2, help="KL divergence weight coefficient")
@@ -358,7 +358,6 @@ def main():
     parser.add_argument("--wandb_run_name", type=str, default=None, help="Name for the wandb run")
     args = parser.parse_args()
 
-    # Initialize wandb if requested
     if args.wandb:
         import wandb
         wandb.init(
@@ -367,14 +366,13 @@ def main():
             name=args.wandb_run_name
         )
 
-    G = args.G  # completions per prompt, ie. group size 
+    G = args.G
     batch_size = args.batch_size
-    # need num_rl_steps and num_inner_updates 
     assert batch_size % G == 0, "ERROR: Completions per prompt must divide batch size" 
 
     num_groups_per_batch = int(batch_size/G)
     num_rl_steps = args.num_rl_steps
-    beta = args.beta  # KL weight 
+    beta = args.beta
     lr = args.lr
     wd = args.wd
     num_inner_updates = args.num_inner_updates
@@ -411,7 +409,7 @@ def main():
     policy, tokenizer = get_model_tokenizer(args.model_name)
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    # After loading the model, do a quick test
+    # sanity check
     if args.verbose: 
         test_prompt = "What is 2 + 2?"
         test_inputs = tokenizer(test_prompt, return_tensors="pt").to(device)
@@ -425,7 +423,6 @@ def main():
     opt = torch.optim.AdamW(policy.parameters(), lr=lr, weight_decay=wd, betas=(0.9, 0.99))
     
 
-    # add lr warmup with lambda 
     def get_cosine_schedule(step: int, warmup: int, total_steps: int) -> float: 
         if step < warmup: 
             return step/warmup
@@ -444,7 +441,7 @@ def main():
 
     if args.verbose:
         print("Creating reference model...")
-    ref = deepcopy(policy) # for KL computation, on cpu bc we don't need grads on it, save memory
+    ref = deepcopy(policy)
     for p in ref.parameters(): 
         p.requires_grad = False 
 
@@ -466,7 +463,7 @@ def main():
         print()
 
     step = 0 
-    while step < num_rl_steps: # this upper loop resets dataloader when it runs dry 
+    while step < num_rl_steps:
         for prompt_b, golden_b_str in tqdm(loader):
             # extract from golden
             golden_b_int = list(map(lambda c: extract(c), golden_b_str)) # [num_groups]
@@ -475,13 +472,11 @@ def main():
             for p, g in zip(prompt_b, golden_b_int): # num groups, each tiled by group_sz
                 flat_prompts += [p] * G
                 flat_goldens += [g] * G 
-            # flats are now [batch_sz]
 
             if args.verbose and step % 5 == 0:
                 print(f"Step {step}: Processing batch with {len(flat_prompts)} prompts")
                 print(f"  Sample golden answer: {flat_goldens[0]}")
 
-            # get completions and policy/ref lps 
             completions_b, mask_b = get_completions_and_mask(
                 flat_prompts, 
                 policy, 
@@ -500,14 +495,12 @@ def main():
             ref_lps_b = ref_lps_b[:, -L:]
             
             for _ in range(num_inner_updates): 
-                # create full sequences (prompts + completions) for ref model
                 policy_lps_b = get_model_lps(
                     policy, tokenizer, full_seqs, grad=True, 
                 )
                 policy_lps_b = policy_lps_b[:, -L:]
 
                 opt.zero_grad()
-                # compute loss 
                 loss = loss_fn(
                     rewards_b, 
                     policy_lps_b, 
@@ -518,13 +511,11 @@ def main():
                     num_groups_per_batch=num_groups_per_batch, 
                 )
 
-                # step 
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(policy.parameters(), max_norm=1.0)
                 opt.step()
                 scheduler.step()
             
-            # Evaluation
             if step > 0 and step % args.eval_every == 0:
                 if args.verbose:
                     print(f"\nRunning evaluation at step {step}...")
@@ -550,7 +541,6 @@ def main():
                 if args.verbose:
                     print(f"Evaluation accuracy: {eval_accuracy:.4f}\n")
             
-            # Logging
             if step % 5 == 0:
                 mean_reward = rewards_b.mean().item()
                 loss_value = loss.item()
@@ -558,8 +548,7 @@ def main():
                 correct_predictions = (rewards_b > 1.0).sum().item()
                 accuracy = correct_predictions / len(rewards_b)
                 
-                # Compute mean generation length
-                generation_lengths = mask_b.sum(dim=1)  # sum of non-padded tokens per sequence
+                generation_lengths = mask_b.sum(dim=1)
                 mean_generation_len = generation_lengths.float().mean().item()
                 
                 if args.verbose:
