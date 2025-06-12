@@ -1,12 +1,58 @@
+'''
+(https://arxiv.org/pdf/2402.03300) DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models
+(https://arxiv.org/pdf/2501.12948) DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning
+
+The first paper introduces GRPO, and the second uses it to improve reasoning for a base model (V3 --> R1). 
+This implements something equivalent to using GRPOTrainer in HuggingFace, the algorithmic logic is easier 
+than maybe you'd expect. 
+
+There are some important subtleties, though -- RL is particularly sensitive to hypers/implementation details. 
+For instance, if you read the HF implementation notes [https://huggingface.co/docs/trl/main/en/grpo_trainer] 
+you'll see there's a number of ablations to the core GRPO algorithm that are common in modern LLM RL in production, 
+and their efficacy is contested. HF itself does NOT actually implement the formula in the paper -- for instance, 
+with their default hypers it's much more like vanilla REINFORCE but with advantage computed from group statistics 
+(Monte-carlo). 
+    `inner_updates` for instance, determines how much we re-use a given set of rollouts (ie. re-compute logprobs)
+    under policy and policy0 = ref and use those new logprobs and the same advantages for new updates. The larger it is, 
+    the more you are "off-policy" and hence clipping is important in the GRPO update since typically it's >1 (which is 
+    totally on-policy). However, HF uses inner_updates = 1 (which they call `mu`), and so this means there is no "th_old" 
+    as in the GRPO formula, so that the two entries in clip become identical and thus clipping is not necessary 
+    (hence why you don't see clipping in my code). 
+
+    It's also a bit weird because Dr GRPO (a new memory efficient version) makes two key ablations: first, 
+    not including .std() in the computation of advantages (see reward_scale=False), and second, not including 1/|o_i| in the GRPO formula. 
+    HF does NOT include the first ablation, but DOES include the second, so it's a kind of GRPO / Dr GRPO mishmash. 
+
+    I also try to use their default GRPROTrainer hypers where possible, but you can fiddle with those 
+    (eg. they set beta = 0 by default but I found our code often has KL divergence blowing up so I set it to 
+    a nonzero value so that the policy stays close to its initial distribution, and this led to the training 
+    being well-behaved). 
+
+    Nonetheless, if you read the GRPO paper and take away the core idea that 1) GRPO's core contribution is 
+    the Monte Carlo advantage estimation from within-group statistics (as opposed to training a separate value head 
+    on lots of data), and 2) there are some subtle implementation details that can be ablated, and actually these 
+    matter a lot, then you'll have gotten most everything you need to out of this implementation. 
+    
+An importnat philosophical point here is also that when we want to RL on a new task, we basically only have to 
+change reward_fn, since everything else in the algorithm stays the says RLing LLMs across different envs 
+(for writing, instruction tuning, math, etc). This is why reward-shaping and "environment design" are so key 
+in modern LLM-based RL. 
+
+Ultimately, the only meaningful test of correctness here is whether eval accuracy/reward goes up. And if you 
+run this code -- you'll see indeed it does!
+''' 
+
+
 import torch 
 from datasets import load_dataset, Dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from typing import List, Optional, Tuple 
-import re 
+from typing import List, Tuple, Union 
+import math 
 from tqdm import tqdm 
 from copy import deepcopy 
 from torch.utils.data import DataLoader 
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import LambdaLR 
 import argparse
 
 ### FUNCTIONS TAKEN FROM evals/eval_gsm8k.py ###
@@ -57,12 +103,14 @@ def get_model_tokenizer(name: str = "meta-llama/Llama-3.2-1B-Instruct") -> Tuple
 
     return model, tokenizer
 
-def extract(text: str, pattern: str = r'####\s*([0-9]+)') -> Optional[int]: 
-    match = re.search(pattern, text)
-    if match is None: 
+def extract(text: str) -> Union[int, float]: 
+    if "####" not in text:
         return float('inf')
-    else: 
-        return int(match.group(1))
+    try:
+        answer_part = text.split("####")[1].strip().replace(",", "").replace("$", "")
+        return int(answer_part)
+    except:
+        return float('inf')
 
 def get_batch_preds(
         model: AutoModelForCausalLM,
@@ -102,15 +150,23 @@ def get_batch_preds(
     return outputs_s
 ### END TAKEN FROM evals/eval_gsm8k.py ###
 
+
 # output is [bsz] tensor of sequence-wise rewards, uses extract() on completions
+def output_format_reward(pred: int) -> float: 
+    return (0.5 if pred != float('inf') else 0.)
+
+def correctness_reward(pred: int, golden: int) -> float: 
+    if pred == float('inf'): return 0. 
+    else: 
+        return (2.0 if pred == golden else 0.)
+
 def reward_fn(completions: List[str], goldens: List[int]) -> torch.Tensor: 
     preds = list(map(lambda c: extract(c), completions))
     rewards = []
     
     for pred, golden in zip(preds, goldens):
-        r = 1.0 if pred == golden else 0.0
-        if pred is not float('inf'): # format reward 
-            r += 0.1
+        r = correctness_reward(pred, golden)
+        r += output_format_reward(pred)
         rewards.append(r)
     return torch.tensor(
         rewards, 
@@ -124,9 +180,10 @@ def loss_fn(
     policy_lps: torch.Tensor, 
     ref_lps: torch.Tensor, 
     mask: torch.Tensor, # should be [B, max_completion_len], don't want padding to influence reward
-    beta: float = 0.1, 
-    G: int = 8,
-    num_groups_per_batch: int = 2, 
+    beta: float = 0, 
+    G: int = 16,
+    num_groups_per_batch: int = 1, 
+    eps_denom: float = 1e-5, 
 ) -> torch.Tensor:
 
     # using no-clip version without importance sampling ratios 
@@ -134,16 +191,21 @@ def loss_fn(
     _, L = policy_lps.shape
     A = torch.empty_like(rewards) # [B]
 
-    for i in range(num_groups_per_batch): 
-        group_rewards = rewards[i*G:(i+1)*G]  # [G]
-        mean = group_rewards.mean()
-        A[i*G:(i+1)*G] = group_rewards - mean # no /std bc using Dr GRPO
+    rewards_reshape = rewards.reshape(num_groups_per_batch, G)
+    means = rewards_reshape.mean(dim=-1, keepdim=True)
+    stds = rewards_reshape.std(dim=-1, keepdim=True)
+    eps_t = torch.full_like(stds, eps_denom)
+    A = ((rewards_reshape - means)/(stds + eps_t)).flatten() # [B]
 
     A = A.unsqueeze(1).expand(-1, L).detach()  # broadcast from seqs to tokens [B, L], dont want diff thru rewards 
-    kl_loss_term = beta * get_kl(policy_lps, ref_lps, mask)
-    adv_term = ((A * policy_lps * mask).sum(dim=1)).mean() # do .mean() and not .sum()/mask.sum() on purpose for Dr GRPO
+    adv_term = ((A * policy_lps * mask).sum()) / mask.sum() # bnpo loss_type in GRPOTrainer
+    
+    if beta: 
+        kl_loss_term = beta * get_kl(policy_lps, ref_lps, mask)
+        return -(adv_term - kl_loss_term) # loss = -reward, and inside parentheses is reward 
+    else: 
+        return -adv_term
 
-    return -(adv_term - kl_loss_term) # loss = -reward, and inside parentheses is reward 
     
 
 # seqs is [bsz] where each is prompt_i + completion_{i, j} where i in [num_prompts] and j in [num_completions_per_prompt]
@@ -168,21 +230,21 @@ def get_model_lps(
         with torch.no_grad(): 
             outputs = model(**inputs)
 
-    logits = outputs.logits # BLV
+    logits = outputs.logits[:, :-1, :] # BLV
     
     lps = F.log_softmax(logits, dim=-1)  # [B, L, V]
     
     # Gather log probs for actual tokens
     input_ids = inputs['input_ids']  # [B, L]
-    lps = lps.gather(dim=-1, index=input_ids.unsqueeze(-1)).squeeze(-1)  # [B, L]
+    lps = lps.gather(dim=-1, index=input_ids[:, 1:].unsqueeze(-1)).squeeze(-1)  # [B, L]
 
     return lps # B, L
 
 # compute closed form for loss_fn 
 def get_kl(policy_lps: torch.Tensor, ref_lps: torch.Tensor, mask: torch.Tensor) -> torch.float32: 
-    diff_m = (policy_lps - ref_lps) * mask
+    diff_m = (ref_lps - policy_lps) * mask
     kl_t = torch.exp(diff_m) - (diff_m) - 1
-    return kl_t.mean()
+    return kl_t.sum() / mask.sum()
 
 # returns completions for each prompt, may need to return mask from .generate or input_ids? 
 def get_completions_and_mask(
@@ -220,7 +282,7 @@ def get_completions_and_mask(
     # Create mask for non-padded tokens
     mask = (generated_tokens != tokenizer.pad_token_id).float()
 
-    return completions, mask  # all are [B, L] where L = max_completion_len
+    return completions, mask[:, 1:]  # all are [B, L] where L = max_completion_len
 
 def eval_model(
     model: AutoModelForCausalLM,
@@ -230,12 +292,12 @@ def eval_model(
     batch_size: int = 16,
     num_batches: int = None,
     max_new_tokens: int = 256,
-    verbose: bool = False
+    verbose: bool = False,
+    num_fewshot: int = 4
 ) -> float:
-    """Evaluate model on GSM8K test set, returns accuracy"""
     
-    # Prepare test dataset
-    test = test_dataset.select(range(len(test_dataset) - 8))  # exclude ICL examples
+    # Prepare test dataset - exclude ICL examples
+    test = test_dataset.select(range(len(test_dataset) - num_fewshot))
     if num_batches:
         test = test.select(range(num_batches * batch_size))
     
@@ -276,22 +338,24 @@ def eval_model(
 
 def main():
     parser = argparse.ArgumentParser(description="Train a language model using GRPO on GSM8K dataset", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--model_name", type=str, default="meta-llama/Llama-3.2-1B-Instruct", help="Name of the model to load from HuggingFace")
+    parser.add_argument("--model_name", type=str, default="meta-llama/Llama-3.2-1B-Instruct", help="Name of the model to load from HuggingFace") # meta-llama/Llama-3.2-1B-Instruct
     parser.add_argument("--G", type=int, default=16, help="Number of completions per prompt (group size)")
     parser.add_argument("--batch_size", type=int, default=16, help="Total batch size for training")
     parser.add_argument("--beta", type=float, default=1e-2, help="KL divergence weight coefficient")
-    parser.add_argument("--num_rl_steps", type=int, default=1_000, help="Number of RL training steps")
-    parser.add_argument("--lr", type=float, default=5e-6, help="Learning rate for the optimizer")
+    parser.add_argument("--num_rl_steps", type=int, default=2_000, help="Number of RL training steps")
+    parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate for the optimizer")
     parser.add_argument("--wd", type=float, default=0.1, help="Weight decay")
     parser.add_argument("--max_new_tokens", type=int, default=256, help="Maximum number of new tokens to generate")
-    parser.add_argument("--num_inner_updates", type=int, default=2, help="Num grad steps on single set of completions")
+    parser.add_argument("--num_inner_updates", type=int, default=1, help="Num grad steps on single set of completions")
     parser.add_argument("--dataset_name", type=str, default="openai/gsm8k", help="Name of the dataset to load")
     parser.add_argument("--dataset_config", type=str, default="main", help="Dataset configuration to use")
     parser.add_argument("--dataset_split", type=str, default="train", help="Dataset split to use for training")
-    parser.add_argument("--eval_every", type=int, default=50, help="Evaluate model every N steps") # every 200 grad updates 
+    parser.add_argument("--eval_every", type=int, default=50, help="Evaluate model every N steps") # every inner_updates * eval_every grad upates
     parser.add_argument("--num_eval_batches", type=int, default=25, help="Number of batches to use for evaluation")
+    parser.add_argument("--num_fewshot", type=int, default=4, help="Number of few-shot examples to use in prompts")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     parser.add_argument("--wandb", action="store_true", help="Enable wandb logging")
+    parser.add_argument("--wandb_run_name", type=str, default=None, help="Name for the wandb run")
     args = parser.parse_args()
 
     # Initialize wandb if requested
@@ -299,7 +363,8 @@ def main():
         import wandb
         wandb.init(
             project="grpo-gsm8k-mine",
-            config=vars(args)
+            config=vars(args),
+            name=args.wandb_run_name
         )
 
     G = args.G  # completions per prompt, ie. group size 
@@ -313,6 +378,7 @@ def main():
     lr = args.lr
     wd = args.wd
     num_inner_updates = args.num_inner_updates
+    num_fewshot = args.num_fewshot
 
     if args.verbose:
         print(f"Starting GRPO training with the following configuration:")
@@ -325,6 +391,7 @@ def main():
         print(f"  Beta (KL weight): {beta}")
         print(f"  Learning rate: {lr}")
         print(f"  Max new tokens: {args.max_new_tokens}")
+        print(f"  Number of few-shot examples: {num_fewshot}")
         print(f"  Evaluation every: {args.eval_every} steps")
         print(f"  Number of eval batches: {args.num_eval_batches}")
         print(f"  Device: {'cuda' if torch.cuda.is_available() else 'cpu'}")
@@ -356,6 +423,24 @@ def main():
         print(f"Model loaded with {sum(p.numel() for p in policy.parameters())/1e9:.2f}B parameters")
         
     opt = torch.optim.AdamW(policy.parameters(), lr=lr, weight_decay=wd, betas=(0.9, 0.99))
+    
+
+    # add lr warmup with lambda 
+    def get_cosine_schedule(step: int, warmup: int, total_steps: int) -> float: 
+        if step < warmup: 
+            return step/warmup
+        else: 
+            progress = (step - warmup)/(total_steps - warmup)  
+            return math.cos(math.pi/2 * progress)
+
+
+    total_steps = num_rl_steps * num_inner_updates
+    warmup = int(0.1 * total_steps)
+
+    scheduler = LambdaLR(
+        opt, 
+        lr_lambda= lambda step: get_cosine_schedule(step, warmup, total_steps),
+    )
 
     if args.verbose:
         print("Creating reference model...")
@@ -367,7 +452,7 @@ def main():
         # then expand those to group_sz each and pass to get_rollouts
         # then your batch is (expanded_prompts, all_completions, expanded_goldens)
 
-    icl_examples = get_icl_examples(test_ds)
+    icl_examples = get_icl_examples(test_ds, num_fewshot)
     q2prompt = lambda q: PROMPT_TEMPLATE.format(question=q, icl_examples=icl_examples)
     prompt_qs = list(map(q2prompt, train_ds["question"]))
     loader = DataLoader(
@@ -434,9 +519,10 @@ def main():
                 )
 
                 # step 
-                torch.nn.utils.clip_grad_norm_(policy.parameters(), max_norm=1.0)
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(policy.parameters(), max_norm=1.0)
                 opt.step()
+                scheduler.step()
             
             # Evaluation
             if step > 0 and step % args.eval_every == 0:
@@ -448,10 +534,11 @@ def main():
                     tokenizer,
                     test_ds,
                     icl_examples,
-                    batch_size=16,
+                    batch_size=batch_size,
                     num_batches=args.num_eval_batches,
                     max_new_tokens=256,
-                    verbose=args.verbose
+                    verbose=args.verbose,
+                    num_fewshot=num_fewshot
                 )
                 
                 if args.wandb:
