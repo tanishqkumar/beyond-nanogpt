@@ -126,9 +126,8 @@ Asterisks (*) denote particularly tricky implementations.
    - [ ] RLHF a base model with UltraFeedback 
    - [ ] DPO a base model with UltraFeedback
    - [x] GRPO for reasoning: outcome reward on math `train_grpo_gsm.py` [[paper]](https://arxiv.org/pdf/2402.03300)
-   - [ ] RL an LLM to match output of a calculator program 
-   - [ ] RL a VLM to pass captchas
-   - [ ] RL an LLM to write good jokes 
+   - [ ] GRPO to use a new API correctly 
+   - [ ] GRPO to write good haikus with an LLM autograder 
 
 ### Generative Models
 
@@ -162,7 +161,6 @@ Asterisks (*) denote particularly tricky implementations.
 - [ ] Train Small Embedding and Reranking Models
 - [x] RAG 101: Retrieval on Q&A Answers `rag/intro_rag.py` 
 - [ ] Multi-Hop Decomposition RAG
-- [ ] Self-Reranking Feedback Loop 
 - [ ] Sparse and Dense Retrieval 
 - [ ] Graph RAG
 
@@ -174,16 +172,8 @@ Asterisks (*) denote particularly tricky implementations.
    - [x] Memory/context management distinguishing short vs long term memory `memory.py` 
    - [x] Evaluate: can it make a correct PR end-to-end in reponse to a GitHub issue? [[demo]](https://x.com/tanishqkumar07/status/1931709892236116293)
 - [ ] Simulate a society with language models
-- [ ] Multi-agent debate system with critique and refinement
-- [ ] Use RLAIF to RL a deep-research agent by autograding browsing trajectories 
-
-
-### Multimodality 
-- [ ] Reimplement CLIP 
-- [ ] Reimplement Flamingo
-- [ ] Train a Transformer on (audio, video, text) input 
-- [ ] Train an SSM on long-context DNA sequence completion 
-- [ ] Train a Transformer for financial time series
+- [ ] Tree-of-Thoughts deep research agents 
+- [ ] Parallel multi-agent deep research  
 
 ---
 
