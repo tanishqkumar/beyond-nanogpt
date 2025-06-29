@@ -141,8 +141,7 @@ class tp_attn_f(torch.autograd.Function):
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         B, S, D = X.shape 
         
-        # Convert to bf16 for computation
-        X_bf16 = X.to(torch.bfloat16)
+        X_bf16 = X.to(torch.bfloat16) # bf16 means we can handle bigger gemms on same compute 
         qkv = X_bf16 @ qkv_weight # BSD @ [D, 3 * nhpr * d_h] -> BS[3 * nhpr * d_h]
         nhpr = qkv.shape[-1] // (3 * d_h)
 
@@ -210,7 +209,7 @@ class tp_attn_f(torch.autograd.Function):
             dlogits = torch.where(mask, dlogits, 0)
 
         dq = torch.einsum('bnij,bnjd->bnid', dlogits, k) # [B, nhpr, S, S] @ [B, nhpr, S, d_h] -> [B, nhpr, S, d_h] 
-        dk = torch.einsum('bnij,bnid->bnjd', dlogits, q) # [B, nhpr, S, S] @ [B, nhpr, S, d_h] -> [B, nhpr, S, d_h], to fix
+        dk = torch.einsum('bnij,bnid->bnjd', dlogits, q) # [B, nhpr, S, S] @ [B, nhpr, S, d_h] -> [B, nhpr, S, d_h]
 
         dq = dq.transpose(1, 2).reshape(B, S, C)
         dk = dk.transpose(1, 2).reshape(B, S, C) 
@@ -302,14 +301,13 @@ if __name__ == "__main__":
         total_params = sum(p.numel() for p in tp_model.parameters())
         print(f"Total parameters: {total_params/1e6:.3f}M, {B*S} tokens per batch")
     
-    # Create optimizer for all model parameters
     optimizer = torch.optim.Adam(tp_model.parameters(), lr=lr)
     
     # smol training loop
     for step in range(10_000):
         optimizer.zero_grad()
         output = tp_model(X)
-        loss = F.mse_loss(output.float(), Y.float())  # Convert to float32 for loss computation
+        loss = F.mse_loss(output.float(), Y.float())  
         loss.backward()
         optimizer.step()
         
