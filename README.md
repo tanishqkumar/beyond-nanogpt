@@ -144,7 +144,7 @@ Asterisks (*) denote particularly tricky implementations.
 ### MLSys 
 - [x] GPU Communication Algorithms* (scatter, gather, ring/tree allreduce) `mlsys/comms.py` [[reference]](https://developer.nvidia.com/nccl)
 - [x] Distributed Data Parallel `mlsys/train_ddp.py` [[paper]](https://arxiv.org/pdf/2006.15704)
-- [ ] Tensor Parallel
+- [x] Tensor Parallel* `mlsys/train_tp.py` [[paper]](https://arxiv.org/pdf/1909.08053)
 - [ ] Ring Attention (Context Parallel)
 - [ ] Paged Attention
 - [ ] Flash Attention in Triton 
