@@ -149,10 +149,10 @@ Asterisks (*) denote particularly tricky implementations.
 - [ ] Paged Attention
 - [ ] Continuous Batching 
 - [ ] Triton Kernels 
-   - [ ] Vector Addition
-   - [ ] Fused Softmax
-   - [ ] Matrix Multiplication (GEMM)
-   - [ ] Layer Normalization
+   - [x] Vector Addition
+   - [x] Fused Softmax Forward + Backward 
+   - [ ] Matrix Multiplication (GEMM) Forward + Backward 
+   - [ ] Layer Normalization Forward + Backward 
    - [ ] FlashAttention Forward 
    - [ ] FlashAttention Backward 
 
