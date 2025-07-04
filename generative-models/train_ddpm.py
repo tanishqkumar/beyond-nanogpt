@@ -175,7 +175,7 @@ class Attention(nn.Module):
 
         out = torch.bmm(A, v) # [b, s, s] @ [b, s, d] -> [b, s, d]
         out = self.wo(out) # [b, s, d] = [b, h * w, ch]
-        return out.transpose(-1, -2).reshape(b, ch, h, w) # output [b, ch, h, w]
+        return out.reshape(b, h, w, ch).permute(0, 3, 1, 2) # output [b, ch, h, w]
         
 # how time embeddings work in UNet 
 # t is [b] vector representing what timestep we want to draw each noise [ch, h, w] from in the batch 

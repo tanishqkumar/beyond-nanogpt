@@ -76,9 +76,10 @@ def loss_fn(policy_net, value_net,
     A_prev = torch.zeros(B, device=deltas.device) # accum for recurrence below 
     # A[t] = d[t] + gam * lam * A_prev recurrence by defn of advantage in paper 
     for t in range(max_rollout_len-1, -1, -1): 
-        mask_t = 1.0 - batch_dones[:, t].to(torch.float)
+        # Apply mask to ensure we don't propagate advantages beyond episode end
+        mask_t = mask[:, t]  # Use the actual sequence mask instead of done mask
         A[:, t] = deltas[:, t] + gamma * lamb * mask_t * A_prev
-        A_prev = A[:, t] 
+        A_prev = A[:, t] * mask_t  # Zero out A_prev for finished episodes 
 
     # normalize advantages so loss and reward don't increase together
     # eg. when avg ep length increases rapidly at beginning 

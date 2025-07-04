@@ -134,9 +134,12 @@ class DDP(nn.Module):
             bucket_idx = param2bucket[id(param)]
             self.bucket_counter[bucket_idx] += 1 # all params in this bucket ready, ie. have p.grad populated 
 
-            last_bucket_check = bool(bucket_idx == self.num_buckets - 1 and self.bucket_counter[bucket_idx] == self.last_bucket_sz) 
+            # Check if this is the last bucket and all parameters in it are ready
+            is_last_bucket = (bucket_idx == self.num_buckets - 1)
+            last_bucket_ready = is_last_bucket and self.bucket_counter[bucket_idx] == self.last_bucket_sz
+            regular_bucket_ready = not is_last_bucket and self.bucket_counter[bucket_idx] == self.bucket_sz
 
-            if self.bucket_counter[bucket_idx] == self.bucket_sz or last_bucket_check: 
+            if regular_bucket_ready or last_bucket_ready: 
                 # fire allreduce for all params in this bucket 
                 for param in buckets[bucket_idx]:
                     work = dist.all_reduce(param.grad, op=dist.ReduceOp.AVG, async_op=True)
