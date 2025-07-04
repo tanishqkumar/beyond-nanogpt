@@ -148,9 +148,9 @@ Asterisks (*) denote particularly tricky implementations.
 - [ ] Ring Attention (Context Parallel)
 - [ ] Paged Attention
 - [ ] Continuous Batching 
-- [ ] Triton Kernels 
-   - [x] Vector Addition
-   - [x] Fused Softmax Forward + Backward 
+- [ ] Triton Kernels `mlsys/kernels`
+   - [x] Vector Addition `vector_add.py`
+   - [x] Fused Softmax Forward + Backward `softmax.py`
    - [ ] Matrix Multiplication (GEMM) Forward + Backward 
    - [ ] Layer Normalization Forward + Backward 
    - [ ] FlashAttention Forward 
