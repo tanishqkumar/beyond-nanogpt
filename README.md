@@ -193,9 +193,7 @@ budget (this works surprisingly well, people are very generous). Obvious excepti
 multi-GPU nodes. 
 - All `.py` scripts take in `--verbose` and `--wandb` as command line arguments when you run them. Feel free to hack these to your needs. 
 - Feel free to email me at [tanishq@stanford.edu](mailto:tanishq@stanford.edu) with feedback, implementation/feature requests, 
-and to raise any bugs as GitHub issues. I am committing to implementing new techniques people want over the next month, and 
-welcome contributions or bug fixes by others. 
-
+and to raise any bugs as GitHub issues.
 If this codebase helped you, please share it and give it a star! You can cite the repository 
 in your work as follows. 
 
