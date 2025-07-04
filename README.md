@@ -147,7 +147,14 @@ Asterisks (*) denote particularly tricky implementations.
 - [x] Tensor Parallel* `mlsys/train_tp.py` [[paper]](https://arxiv.org/pdf/1909.08053)
 - [ ] Ring Attention (Context Parallel)
 - [ ] Paged Attention
-- [ ] Flash Attention in Triton 
+- [ ] Continuous Batching 
+- [ ] Triton Kernels 
+   - [ ] Vector Addition
+   - [ ] Fused Softmax
+   - [ ] Matrix Multiplication (GEMM)
+   - [ ] Layer Normalization
+   - [ ] FlashAttention Forward 
+   - [ ] FlashAttention Backward 
 
 ### Evals
 
