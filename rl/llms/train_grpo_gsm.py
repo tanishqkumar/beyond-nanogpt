@@ -8,7 +8,7 @@ than maybe you'd expect.
 
 There are some important subtleties, though -- RL is particularly sensitive to hypers/implementation details. 
 For instance, if you read the HF implementation notes [https://huggingface.co/docs/trl/main/en/grpo_trainer] 
-you'll see there's a number of ablations to the core GRPO algorithm that are common in modern LLM RL in production, 
+you'll see there are a number of ablations to the core GRPO algorithm that are common in modern LLM RL in production, 
 and their efficacy is contested. HF itself does NOT actually implement the formula in the paper -- for instance, 
 with their default hypers it's much more like vanilla REINFORCE but with advantage computed from group statistics 
 (Monte-carlo). 
@@ -33,7 +33,7 @@ with their default hypers it's much more like vanilla REINFORCE but with advanta
     on lots of data), and 2) there are some subtle implementation details that can be ablated, and actually these 
     matter a lot, then you'll have gotten most everything you need to out of this implementation. 
     
-An importnat philosophical point here is also that when we want to RL on a new task, we basically only have to 
+An important philosophical point here is also that when we want to RL on a new task, we basically only have to 
 change reward_fn, since everything else in the algorithm stays the says RLing LLMs across different envs 
 (for writing, instruction tuning, math, etc). This is why reward-shaping and "environment design" are so key 
 in modern LLM-based RL. 
@@ -54,11 +54,12 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import LambdaLR 
 import argparse
+import wandb
 
 ### FUNCTIONS TAKEN FROM evals/eval_gsm8k.py ###
 PROMPT_TEMPLATE = """
 You are a helpful language model assistant correctly solving math problems. You think step by step to reach 
-the correct answer. You should output your final answer as `#### answer`. You will be shown some examples of 
+the correct answer. You should output your final answer as `#### answer` after you are done thinking. You will be shown some examples of 
 how to answer such questions, and then you will be asked the question you should solve. 
 --- 
 Examples: 
@@ -72,7 +73,18 @@ Question:
 Answer: 
 """
 
-def get_icl_examples(test: Dataset, num_fewshot: int = 4) -> Tuple[str, Dataset]: 
+PROMPT_TEMPLATE_NO_ICL = """
+You are a helpful language model assistant correctly solving math problems. You think step by step to reach 
+the correct answer. You should output your final answer as `#### answer` after you are done thinking.
+
+Question: 
+{question}
+
+Answer: 
+"""
+
+def get_icl_examples(test: Dataset, num_fewshot: int = 4) -> str: 
+    
     # use .select instead of list splicing for Dataset object to avoid screwing it up 
     num_fewshot_lst = test.select(range(len(test)-num_fewshot, len(test)))
 
@@ -84,16 +96,20 @@ def get_icl_examples(test: Dataset, num_fewshot: int = 4) -> Tuple[str, Dataset]
     
     return '\n\n'.join(examples)
 
+# TODOs: format reward, check off by 1 and correctness, launch sweeps
+
 def get_model_tokenizer(name: str = "meta-llama/Llama-3.2-1B-Instruct") -> Tuple[AutoModelForCausalLM, AutoTokenizer]: 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if not torch.cuda.is_available():
+        raise ValueError("CUDA is not available")
+    device = torch.device("cuda")
     model = AutoModelForCausalLM.from_pretrained(
         name, 
         torch_dtype=torch.bfloat16, 
         device_map="auto", 
+        attn_implementation="flash_attention_2",
         )
     model = model.to(device)
     tokenizer = AutoTokenizer.from_pretrained(name)
-    
 
     if tokenizer.pad_token is None: 
         tokenizer.pad_token = tokenizer.eos_token 
@@ -129,7 +145,7 @@ def get_batch_preds(
     )
     
     # Move inputs to the same device as the model
-    inputs = {k: v.to(device) for k, v in inputs.items()}
+    inputs = {k: v.to(device, non_blocking=True) for k, v in inputs.items()}
 
     with torch.no_grad(): 
         outputs_t = model.generate(
@@ -170,7 +186,7 @@ def reward_fn(completions: List[str], goldens: List[int]) -> torch.Tensor:
         rewards.append(r)
     return torch.tensor(
         rewards, 
-        dtype=torch.float32, 
+        dtype=torch.bfloat16, 
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     )
 
@@ -184,6 +200,8 @@ def loss_fn(
     G: int = 16,
     num_groups_per_batch: int = 1, 
     eps_denom: float = 1e-5, 
+    use_dr_len: bool = False, 
+    use_dr_std: bool = False, 
 ) -> torch.Tensor:
 
     # using no-clip version without importance sampling ratios 
@@ -191,24 +209,26 @@ def loss_fn(
     _, L = policy_lps.shape
     A = torch.empty_like(rewards) # [B]
 
-    rewards_reshape = rewards.reshape(num_groups_per_batch, G)
+    rewards_reshape = rewards.reshape(num_groups_per_batch, G) 
     means = rewards_reshape.mean(dim=-1, keepdim=True)
     stds = rewards_reshape.std(dim=-1, keepdim=True)
-    eps_t = torch.full_like(stds, eps_denom)
-    A = ((rewards_reshape - means)/(stds + eps_t)).flatten() # [B]
+    eps_t = torch.full_like(stds, eps_denom, dtype=torch.bfloat16)
+    denom = (stds + eps_t) if use_dr_std else torch.ones_like(stds)
+        
+    A = ((rewards_reshape - means)/denom).flatten() # [B]
 
     A = A.unsqueeze(1).expand(-1, L).detach()  # broadcast from seqs to tokens [B, L], dont want diff thru rewards 
-    adv_term = ((A * policy_lps * mask).sum()) / mask.sum() # bnpo loss_type in GRPOTrainer
+    sum_over_rollouts = (A * policy_lps * mask).sum(dim=-1) 
+    if use_dr_len:
+        sum_over_rollouts = sum_over_rollouts / mask.sum(dim=-1)
+    adv = sum_over_rollouts.mean()
     
-    if beta: 
-        kl_loss_term = beta * get_kl(policy_lps, ref_lps, mask)
-        return -(adv_term - kl_loss_term) # loss = -reward, and inside parentheses is reward 
-    else: 
-        return -adv_term
+    kl_loss = beta * get_kl(policy_lps, ref_lps, mask)
+    reward = adv - kl_loss
+    return -reward
 
-    
 
-# seqs is [bsz] where each is prompt_i + completion_{i, j} where i in [num_prompts] and j in [num_completions_per_prompt]
+# seqs is [bsz] where each is prompt_i + completion_{i, j} where i in [num_prompts_per_step] and j in [num_completions_per_prompt]
 def get_model_lps(
     model: AutoModelForCausalLM, 
     tokenizer: AutoTokenizer, 
@@ -222,7 +242,7 @@ def get_model_lps(
         truncation=True, 
         return_tensors="pt"
     )
-    inputs = {k: v.to(device) for k, v in inputs.items()}
+    inputs = {k: v.to(device, non_blocking=True) for k, v in inputs.items()}
     
     if grad: 
         outputs = model(**inputs)
@@ -232,7 +252,7 @@ def get_model_lps(
 
     logits = outputs.logits[:, :-1, :] # BLV
     
-    lps = F.log_softmax(logits, dim=-1)  # [B, L, V]
+    lps = F.log_softmax(logits, dim=-1)  # [B, L, V] ~ 16 * 768 * 150_000 * 2 ~ 3Gb
     
     # Gather log probs for actual tokens
     input_ids = inputs['input_ids']  # [B, L]
@@ -241,10 +261,10 @@ def get_model_lps(
     return lps # B, L
 
 # compute closed form for loss_fn 
-def get_kl(policy_lps: torch.Tensor, ref_lps: torch.Tensor, mask: torch.Tensor) -> torch.float32: 
-    diff_m = (ref_lps - policy_lps) * mask
+def get_kl(policy_lps: torch.Tensor, ref_lps: torch.Tensor, mask: torch.Tensor) -> torch.Tensor: 
+    diff_m = (ref_lps.float() - policy_lps.float()) * mask
     kl_t = torch.exp(diff_m) - (diff_m) - 1
-    return kl_t.sum() / mask.sum()
+    return (kl_t.sum() / mask.sum()).float()
 
 # returns completions for each prompt, may need to return mask from .generate or input_ids? 
 def get_completions_and_mask(
@@ -252,7 +272,7 @@ def get_completions_and_mask(
     model: AutoModelForCausalLM, 
     tokenizer: AutoTokenizer, 
     max_new_tokens: int = 256
-) -> Tuple[List[str], torch.Tensor, torch.Tensor]:
+) -> Tuple[List[str], torch.Tensor]:
     device = next(model.parameters()).device
     inputs = tokenizer(
         prompts, 
@@ -260,7 +280,7 @@ def get_completions_and_mask(
         padding=True, 
         truncation=True, 
     )
-    inputs = {k: v.to(device) for k, v in inputs.items()}
+    inputs = {k: v.to(device, non_blocking=True) for k, v in inputs.items()} # we pinned dataloader memory so this h2d is async 
 
     with torch.no_grad(): 
         outputs = model.generate(
@@ -268,6 +288,7 @@ def get_completions_and_mask(
             max_new_tokens=max_new_tokens, 
             return_dict_in_generate=True,
             pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
             do_sample=True, 
             temperature=0.9, # nontrivial exploration
         )
@@ -280,16 +301,16 @@ def get_completions_and_mask(
     )
 
     # Create mask for non-padded tokens
-    mask = (generated_tokens != tokenizer.pad_token_id).float()
+    mask = (generated_tokens != tokenizer.pad_token_id).to(torch.bfloat16)
 
-    return completions, mask[:, 1:]  # all are [B, L] where L = max_completion_len
+    return completions, mask  # all are [B, L] where L = max_completion_len
 
 def eval_model(
     model: AutoModelForCausalLM,
     tokenizer: AutoTokenizer,
     test_dataset: Dataset,
     icl_examples: str,
-    batch_size: int = 16,
+    b: int = 16,
     num_batches: int = None,
     max_new_tokens: int = 256,
     verbose: bool = False,
@@ -299,14 +320,17 @@ def eval_model(
     # Prepare test dataset - exclude ICL examples
     test = test_dataset.select(range(len(test_dataset) - num_fewshot))
     if num_batches:
-        test = test.select(range(num_batches * batch_size))
+        test = test.select(range(num_batches * b))
     
-    loader = DataLoader(test, shuffle=False, batch_size=batch_size)
+    loader = DataLoader(test, shuffle=False, batch_size=b)
     
     num_correct = 0
     num_total = 0
     
-    q2prompt = lambda q: PROMPT_TEMPLATE.format(icl_examples=icl_examples, question=q)
+    if num_fewshot > 0:
+        q2prompt = lambda q: PROMPT_TEMPLATE.format(icl_examples=icl_examples, question=q)
+    else:
+        q2prompt = lambda q: PROMPT_TEMPLATE_NO_ICL.format(question=q)
     
     for batch in loader:
         questions = batch['question']
@@ -335,55 +359,121 @@ def eval_model(
     
     return accuracy
 
+def log_metrics(
+    step: int,
+    loss: torch.Tensor,
+    rewards_b: torch.Tensor,
+    policy_lps_b: torch.Tensor,
+    ref_lps_b: torch.Tensor,
+    mask_b: torch.Tensor,
+    args,
+    cumulative_rewards: torch.Tensor = None,
+    cumulative_policy_lps: torch.Tensor = None,
+    cumulative_ref_lps: torch.Tensor = None,
+    cumulative_mask: torch.Tensor = None,
+):
+    # Use cumulative metrics if provided, otherwise use current batch
+    if cumulative_rewards is not None:
+        rewards_for_metrics = cumulative_rewards
+        policy_lps_for_metrics = cumulative_policy_lps
+        ref_lps_for_metrics = cumulative_ref_lps
+        mask_for_metrics = cumulative_mask
+    else:
+        rewards_for_metrics = rewards_b
+        policy_lps_for_metrics = policy_lps_b
+        ref_lps_for_metrics = ref_lps_b
+        mask_for_metrics = mask_b
+
+    mean_reward = rewards_for_metrics.mean().item()
+    loss_value = loss.item()
+    reward_std = rewards_for_metrics.std().item()
+    correct_predictions = (rewards_for_metrics > 1.0).sum().item()
+    accuracy = correct_predictions / len(rewards_for_metrics)
+
+    generation_lengths = mask_for_metrics.sum(dim=1)
+    mean_generation_len = generation_lengths.float().mean().item()
+
+    if args.verbose:
+        print(
+            f"Step {step}: Loss = {loss_value:.4f}, Mean Reward = {mean_reward:.4f}")
+        print(
+            f"  Accuracy: {accuracy:.2%} ({correct_predictions}/{len(rewards_for_metrics)})")
+        print(
+            f"  Mean generation length: {mean_generation_len:.1f}")
+        print(
+            f"  Policy log probs mean: {policy_lps_for_metrics.mean().item():.4f}")
+        print(
+            f"  Ref log probs mean: {ref_lps_for_metrics.mean().item():.4f}")
+        print(
+            f"  KL divergence: {get_kl(policy_lps_for_metrics, ref_lps_for_metrics, mask_for_metrics).item():.4f}")
+
+    if args.wandb:
+        wandb.log({
+            "step": step,
+            "train_loss": loss_value,
+            "train_mean_reward": mean_reward,
+            "train_reward_std": reward_std,
+            "train_accuracy": accuracy,
+            "train_mean_generation_len": mean_generation_len,
+            "train_kl_divergence": get_kl(policy_lps_for_metrics, ref_lps_for_metrics, mask_for_metrics).item(),
+            "train_policy_lps_mean": policy_lps_for_metrics.mean().item(),
+            "train_ref_lps_mean": ref_lps_for_metrics.mean().item(),
+        })
 
 def main():
     parser = argparse.ArgumentParser(description="Train a language model using GRPO on GSM8K dataset", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--model_name", type=str, default="meta-llama/Llama-3.2-1B-Instruct", help="Name of the model to load from HuggingFace")
     parser.add_argument("--G", type=int, default=16, help="Number of completions per prompt (group size)")
-    parser.add_argument("--batch_size", type=int, default=16, help="Total batch size for training")
+    parser.add_argument("--num_prompts_per_step", type=int, default=16, help="Total batch size for training")
+    parser.add_argument("--b", type=int, default=16, help="Total batch size for training") # batch size since we grad accum 
     parser.add_argument("--beta", type=float, default=1e-2, help="KL divergence weight coefficient")
-    parser.add_argument("--num_rl_steps", type=int, default=2_000, help="Number of RL training steps")
-    parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate for the optimizer")
-    parser.add_argument("--wd", type=float, default=0.1, help="Weight decay")
+    parser.add_argument("--num_rl_steps", type=int, default=1_000, help="Number of RL training steps")
+    parser.add_argument("--lr", type=float, default=2e-6, help="Learning rate for the optimizer")
+    parser.add_argument("--wd", type=float, default=0.01, help="Weight decay")
     parser.add_argument("--max_new_tokens", type=int, default=256, help="Maximum number of new tokens to generate")
-    parser.add_argument("--num_inner_updates", type=int, default=1, help="Num grad steps on single set of completions")
     parser.add_argument("--dataset_name", type=str, default="openai/gsm8k", help="Name of the dataset to load")
     parser.add_argument("--dataset_config", type=str, default="main", help="Dataset configuration to use")
     parser.add_argument("--dataset_split", type=str, default="train", help="Dataset split to use for training")
-    parser.add_argument("--eval_every", type=int, default=50, help="Evaluate model every N steps") # every inner_updates * eval_every grad upates
-    parser.add_argument("--num_eval_batches", type=int, default=25, help="Number of batches to use for evaluation")
+    parser.add_argument("--eval_every", type=int, default=100, help="Evaluate model every N steps") # every inner_updates * eval_every grad upates
+    parser.add_argument("--num_eval_batches", type=int, default=20, help="Number of batches to use for evaluation")
     parser.add_argument("--num_fewshot", type=int, default=4, help="Number of few-shot examples to use in prompts")
+    parser.add_argument("--use_dr_len", action="store_true", help="Enable length-based reward shaping")
+    parser.add_argument("--use_dr_std", action="store_true", help="Enable std-based reward shaping")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     parser.add_argument("--wandb", action="store_true", help="Enable wandb logging")
     parser.add_argument("--wandb_run_name", type=str, default=None, help="Name for the wandb run")
+    parser.add_argument("--group", type=str, default=None, help="Group for the wandb run")
     args = parser.parse_args()
 
     if args.wandb:
-        import wandb
         wandb.init(
-            project="grpo-gsm8k-mine",
+            project="b-ngpt-rl",
             config=vars(args),
-            name=args.wandb_run_name
+            name=args.wandb_run_name,
+            group=args.group
         )
 
     G = args.G
-    batch_size = args.batch_size
-    assert batch_size % G == 0, "ERROR: Completions per prompt must divide batch size" 
+    num_prompts_per_step = args.num_prompts_per_step
+    # num_prompts_per_step 
+    # G = groups_per_step 
 
-    num_groups_per_batch = int(batch_size/G)
+    b = args.b
+    assert b>=G, "b must be greater than or equal to G"
+    num_groups_per_batch = int(b/G)
     num_rl_steps = args.num_rl_steps
     beta = args.beta
     lr = args.lr
     wd = args.wd
-    num_inner_updates = args.num_inner_updates
     num_fewshot = args.num_fewshot
+    accum_steps = num_prompts_per_step * G // b
 
     if args.verbose:
         print(f"Starting GRPO training with the following configuration:")
         print(f"  Model: {args.model_name}")
         print(f"  Dataset: {args.dataset_name} ({args.dataset_config}, {args.dataset_split})")
         print(f"  Group size (G): {G}")
-        print(f"  Batch size: {batch_size}")
+        print(f"  Batch size: {b}")
         print(f"  Groups per batch: {num_groups_per_batch}")
         print(f"  Number of RL steps: {num_rl_steps}")
         print(f"  Beta (KL weight): {beta}")
@@ -403,12 +493,11 @@ def main():
 
     if args.verbose:
         print(f"Dataset loaded with {len(train_ds)} examples")
-        
-    if args.verbose:
         print("Loading model and tokenizer...")
     policy, tokenizer = get_model_tokenizer(args.model_name)
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    
     # sanity check
     if args.verbose: 
         test_prompt = "What is 2 + 2?"
@@ -423,20 +512,18 @@ def main():
     opt = torch.optim.AdamW(policy.parameters(), lr=lr, weight_decay=wd, betas=(0.9, 0.99))
     
 
-    def get_cosine_schedule(step: int, warmup: int, total_steps: int) -> float: 
+    def get_cosine_schedule(step: int, warmup: int, num_rl_steps: int) -> float: 
         if step < warmup: 
             return step/warmup
         else: 
-            progress = (step - warmup)/(total_steps - warmup)  
+            progress = (step - warmup)/(num_rl_steps - warmup)  
             return math.cos(math.pi/2 * progress)
 
-
-    total_steps = num_rl_steps * num_inner_updates
-    warmup = int(0.1 * total_steps)
+    warmup = int(0.1 * num_rl_steps)
 
     scheduler = LambdaLR(
         opt, 
-        lr_lambda= lambda step: get_cosine_schedule(step, warmup, total_steps),
+        lr_lambda= lambda step: get_cosine_schedule(step, warmup, num_rl_steps),
     )
 
     if args.verbose:
@@ -445,17 +532,23 @@ def main():
     for p in ref.parameters(): 
         p.requires_grad = False 
 
+    if num_fewshot > 0:
+        icl_examples = get_icl_examples(test_ds, num_fewshot)
+        q2prompt = lambda q: PROMPT_TEMPLATE.format(question=q, icl_examples=icl_examples)
+    else:
+        q2prompt = lambda q: PROMPT_TEMPLATE_NO_ICL.format(question=q)
+        icl_examples = ""
+
+    prompt_qs = list(map(q2prompt, train_ds["question"]))
+
     # let dataloader "batch" be just prompts/golden for num_groups_per_batch
         # then expand those to group_sz each and pass to get_rollouts
         # then your batch is (expanded_prompts, all_completions, expanded_goldens)
-
-    icl_examples = get_icl_examples(test_ds, num_fewshot)
-    q2prompt = lambda q: PROMPT_TEMPLATE.format(question=q, icl_examples=icl_examples)
-    prompt_qs = list(map(q2prompt, train_ds["question"]))
     loader = DataLoader(
         list(zip(prompt_qs, train_ds["answer"])), 
         shuffle=True, 
         batch_size=num_groups_per_batch, 
+        pin_memory=True,
         )
 
     if args.verbose:
@@ -463,26 +556,30 @@ def main():
         print()
 
     step = 0 
+    print(f'G={G}, num_groups_per_batch={num_groups_per_batch}, b={b}, accum_steps={accum_steps}')
+    
+    # Initialize cumulative metrics storage
+    cumulative_rewards = []
+    cumulative_policy_lps = []
+    cumulative_ref_lps = []
+    cumulative_mask = []
+    
     while step < num_rl_steps:
         for prompt_b, golden_b_str in tqdm(loader):
             # extract from golden
             golden_b_int = list(map(lambda c: extract(c), golden_b_str)) # [num_groups]
-            # expand by a factor group_sz to batch_size each (prompts, goldens)
+            # expand by a factor group_sz to num_prompts_per_step each (prompts, goldens)
             flat_prompts, flat_goldens = [], []
             for p, g in zip(prompt_b, golden_b_int): # num groups, each tiled by group_sz
                 flat_prompts += [p] * G
                 flat_goldens += [g] * G 
-
-            if args.verbose and step % 5 == 0:
-                print(f"Step {step}: Processing batch with {len(flat_prompts)} prompts")
-                print(f"  Sample golden answer: {flat_goldens[0]}")
 
             completions_b, mask_b = get_completions_and_mask(
                 flat_prompts, 
                 policy, 
                 tokenizer,
                 max_new_tokens=args.max_new_tokens
-            )
+            ) 
             full_seqs = [p + c for p, c in zip(flat_prompts, completions_b)]
             ref_lps_b = get_model_lps(
                 ref, tokenizer, full_seqs, grad=False, 
@@ -493,30 +590,71 @@ def main():
             # extract only the completion portion of ref_lps
             L = mask_b.shape[1] # max completion len 
             ref_lps_b = ref_lps_b[:, -L:]
-            
-            for _ in range(num_inner_updates): 
-                policy_lps_b = get_model_lps(
-                    policy, tokenizer, full_seqs, grad=True, 
-                )
-                policy_lps_b = policy_lps_b[:, -L:]
+        
+            policy_lps_b = get_model_lps(
+                policy, tokenizer, full_seqs, grad=True,
+            )
+            policy_lps_b = policy_lps_b[:, -L:]
 
-                opt.zero_grad()
-                loss = loss_fn(
-                    rewards_b, 
-                    policy_lps_b, 
-                    ref_lps_b, 
-                    mask_b, 
-                    beta=beta, 
-                    G=G, 
-                    num_groups_per_batch=num_groups_per_batch, 
-                )
+            # Accumulate metrics
+            cumulative_rewards.append(rewards_b)
+            cumulative_policy_lps.append(policy_lps_b)
+            cumulative_ref_lps.append(ref_lps_b)
+            cumulative_mask.append(mask_b)
 
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(policy.parameters(), max_norm=1.0)
+            loss = loss_fn(
+                rewards_b,
+                policy_lps_b,
+                ref_lps_b,
+                mask_b,
+                beta=beta,
+                G=G,
+                num_groups_per_batch=num_groups_per_batch,
+                use_dr_len=args.use_dr_len,
+                use_dr_std=args.use_dr_std,
+            ) / accum_steps
+
+            loss.backward()
+            if (step + 1) % accum_steps == 0:
+                torch.nn.utils.clip_grad_norm_(
+                    policy.parameters(), max_norm=1.0)
                 opt.step()
-                scheduler.step()
-            
-            if step > 0 and step % args.eval_every == 0:
+                opt.zero_grad()
+                scheduler.step()            
+
+                # Concatenate cumulative metrics (pad variable sequence lengths)
+                max_L = max(
+                    [t.shape[1] for t in cumulative_mask] +
+                    [t.shape[1] for t in cumulative_policy_lps] +
+                    [t.shape[1] for t in cumulative_ref_lps]
+                )
+                pad_to = lambda x: F.pad(x, (0, max_L - x.shape[1]))
+                cum_rewards = torch.cat(cumulative_rewards, dim=0)
+                cum_policy_lps = torch.cat([pad_to(x) for x in cumulative_policy_lps], dim=0)
+                cum_ref_lps = torch.cat([pad_to(x) for x in cumulative_ref_lps], dim=0)
+                cum_mask = torch.cat([pad_to(x) for x in cumulative_mask], dim=0)
+
+                log_metrics(
+                    step,
+                    loss,
+                    rewards_b,
+                    policy_lps_b,
+                    ref_lps_b,
+                    mask_b,
+                    args,
+                    cumulative_rewards=cum_rewards,
+                    cumulative_policy_lps=cum_policy_lps,
+                    cumulative_ref_lps=cum_ref_lps,
+                    cumulative_mask=cum_mask
+                )
+
+                # Reset cumulative metrics
+                cumulative_rewards = []
+                cumulative_policy_lps = []
+                cumulative_ref_lps = []
+                cumulative_mask = []
+
+            if step % (args.eval_every * accum_steps) == 0: # we want to eval on step 0 now so took out (if step > 0) condition
                 if args.verbose:
                     print(f"\nRunning evaluation at step {step}...")
                 
@@ -525,7 +663,7 @@ def main():
                     tokenizer,
                     test_ds,
                     icl_examples,
-                    batch_size=batch_size,
+                    b=b,
                     num_batches=args.num_eval_batches,
                     max_new_tokens=256,
                     verbose=args.verbose,
@@ -540,39 +678,11 @@ def main():
                 
                 if args.verbose:
                     print(f"Evaluation accuracy: {eval_accuracy:.4f}\n")
-            
-            if step % 5 == 0:
-                mean_reward = rewards_b.mean().item()
-                loss_value = loss.item()
-                reward_std = rewards_b.std().item()
-                correct_predictions = (rewards_b > 1.0).sum().item()
-                accuracy = correct_predictions / len(rewards_b)
+        
                 
-                generation_lengths = mask_b.sum(dim=1)
-                mean_generation_len = generation_lengths.float().mean().item()
-                
-                if args.verbose:
-                    print(f"Step {step}: Loss = {loss_value:.4f}, Mean Reward = {mean_reward:.4f}")
-                    print(f"  Accuracy: {accuracy:.2%} ({correct_predictions}/{len(rewards_b)})")
-                    print(f"  Mean generation length: {mean_generation_len:.1f}")
-                    print(f"  Policy log probs mean: {policy_lps_b.mean().item():.4f}")
-                    print(f"  Ref log probs mean: {ref_lps_b.mean().item():.4f}")
-                    print(f"  KL divergence: {get_kl(policy_lps_b, ref_lps_b, mask_b).item():.4f}")
-                
-                if args.wandb:
-                    wandb.log({
-                        "step": step,
-                        "train_loss": loss_value,
-                        "train_mean_reward": mean_reward,
-                        "train_reward_std": reward_std,
-                        "train_accuracy": accuracy,
-                        "train_mean_generation_len": mean_generation_len,
-                        "train_kl_divergence": get_kl(policy_lps_b, ref_lps_b, mask_b).item(),
-                        "train_policy_lps_mean": policy_lps_b.mean().item(),
-                        "train_ref_lps_mean": ref_lps_b.mean().item(),
-                    })
-            
             step += 1
+            if step >= num_rl_steps: break 
+        
 
 if __name__ == "__main__":
     main()
