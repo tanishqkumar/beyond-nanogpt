@@ -125,9 +125,8 @@ Asterisks (*) denote particularly tricky implementations.
 - LLMs `rl/llms`
    - [ ] RLHF a base model with UltraFeedback 
    - [ ] DPO a base model with UltraFeedback
-   - [x] GRPO for reasoning: outcome reward on math `train_grpo_gsm.py` [[paper]](https://arxiv.org/pdf/2402.03300)
-   - [ ] GRPO to use a new API correctly 
-   - [ ] GRPO to write good haikus with an LLM autograder 
+   - [x] GRPO for reasoning `train_grpo_gsm.py` [[paper]](https://arxiv.org/pdf/2402.03300)
+   - [x] GRPO for humor `train_grpo_humor.py` 
 
 ### Generative Models
 
